@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from skopt import BayesSearchCV
 from sklearn.preprocessing import RobustScaler
 import tensorflow as tf
 import seaborn as sns
@@ -22,7 +23,8 @@ from sklearn.model_selection import KFold, StratifiedKFold, cross_validate
 LABEL_GENUINE = 0
 LABEL_FRAUD = 1
 TEST_SIZE = .2
-SCORING = ['accuracy', 'precision', 'recall', 'f1', 'roc_auc']
+SCORING = ['accuracy', 'precision', 'recall', 'f1']
+CV_FOLDS = 10
 #TODO : LE PARAMETER GRID PER I CLASSIFICATORI
 
 def dataset_load_and_explore(path):
@@ -51,9 +53,7 @@ def dataset_scale(data):
     scaled_dataset['Time'] = scaled_columns['Time']
     return scaled_dataset
 
-def supervised_learning(classifiers, x_train, y_train, over_sampled, scoring=None):
-    if scoring is None:
-        scoring = SCORING
+def supervised_learning(classifiers, x_train, y_train, over_sampled):
     if not over_sampled:
         print(f"before SMOTE sampling, counter(y) = {Counter(y_train)}")
         #normale cross validation stratificata (per dataset sbilanciati), con solo scaling di amount e time nel dataset
@@ -61,33 +61,28 @@ def supervised_learning(classifiers, x_train, y_train, over_sampled, scoring=Non
             result_file.write(f'Prima normale classificazione, no oversampling. Classificatori : {list(classifiers.keys())}\n')
             for key, classifier in classifiers.items():
                 classifier.fit(x_train, y_train)
-                scores = cross_validate(classifier, x_train, y_train, n_jobs=-1, cv=10, scoring=scoring, verbose=1)
-                result = (f"Classifiers: {classifier.__class__.__name__} has\n {scores['test_precision'].mean()} mean precision (+-{round(scores['test_precision'].std() * 2, 5)})"
-                        f"\n {scores['test_recall'].mean()} mean recall (+-{round(scores['test_recall'].std() * 2, 5)})\n {scores['test_f1'].mean()} mean f1 score (+-{round(scores['test_f1'].std() * 2, 5)})"
-                        f"\n {scores['test_roc_auc'].mean()} mean AUROC (+-{round(scores['test_roc_auc'].std() * 2, 5)})\n"
-                        f"\n {scores['test_accuracy'].mean()} mean accuracy (+-{round(scores['test_accuracy'].std() * 2, 5)}\n\n")
+                scores = cross_validate(classifier, x_train, y_train, n_jobs=-1, cv=CV_FOLDS, scoring=SCORING, verbose=1)
+                result = (f"Classifiers: {classifier.__class__.__name__} has\n {scores['test_precision'].mean()} mean precision ({round(scores['test_precision'].std(), 5)} std)"
+                    f"\n {scores['test_recall'].mean()} mean recall ({round(scores['test_recall'].std(), 5)} std)\n {scores['test_f1'].mean()} mean f1 score ({round(scores['test_f1'].std(), 5)} std)\n"
+                    f"\n {scores['test_accuracy'].mean()} mean accuracy ({round(scores['test_accuracy'].std(), 5)} std)\n\n")
                 result_file.write(result)
     else:
         # prova di oversampling sulla classe fraud (non undersampling: sulla perdita di informazioni ci si può fare poco ma sull`overfitting si può fare tanto)
-        oversampler = SMOTE(sampling_strategy=0.5, random_state=42)
-        x_train, y_train = oversampler.fit_resample(x_train, y_train)
         print(f"After SMOTE, counter(y) = {Counter(y_train)}")
         with open("smote_results.txt", "w") as result_file:
             result_file.write(
                 f'Classificazione dopo oversampling SMOTE. Classificatori : {list(classifiers.keys())}\n')
             for key, classifier in classifiers.items():
                 classifier.fit(x_train, y_train)
-                scores = cross_validate(classifier, x_train, y_train, n_jobs=-1, cv=10, scoring=scoring, verbose=1)
-                result = (
-                    f"Classifiers: {classifier.__class__.__name__} has\n {scores['test_precision'].mean()} mean precision (+-{round(scores['test_precision'].std() * 2, 5)})"
-                    f"\n {scores['test_recall'].mean()} mean recall (+-{round(scores['test_recall'].std() * 2, 5)})\n {scores['test_f1'].mean()} mean f1 score (+-{round(scores['test_f1'].std() * 2, 5)})"
-                    f"\n {scores['test_roc_auc'].mean()} mean AUROC (+-{round(scores['test_roc_auc'].std() * 2, 5)})\n"
-                    f"")
+                scores = cross_validate(classifier, x_train, y_train, n_jobs=-1, cv=CV_FOLDS, scoring=SCORING, verbose=1)
+                result = (f"Classifiers: {classifier.__class__.__name__} has\n {scores['test_precision'].mean()} mean precision ({round(scores['test_precision'].std(), 5)} std)"
+                    f"\n {scores['test_recall'].mean()} mean recall ({round(scores['test_recall'].std(), 5)} std)\n {scores['test_f1'].mean()} mean f1 score ({round(scores['test_f1'].std(), 5)} std)\n"
+                    f"\n {scores['test_accuracy'].mean()} mean accuracy ({round(scores['test_accuracy'].std(), 5)} std)\n\n")
                 result_file.write(result)
 
-def hyperparameter_search_supervised_learning(classifiers, x_train, y_train, over_sampled, scoring=None):
-    if scoring is None:
-        scoring = SCORING
+def hyperparameter_search_supervised_learning(classifiers, x_train, y_train, over_sampled, bayes_search_objects):
+    #TODO: Far fare un giro di bayessearchcv ad ogni classificatore
+    #trovare un modo decente per fare il loop e salvare i risultati
     if not over_sampled:
         with open("hyperparameter_tuning_no_smote.txt", "w") as result_file:
             result_file.write(
@@ -95,6 +90,8 @@ def hyperparameter_search_supervised_learning(classifiers, x_train, y_train, ove
             for key, classifier in classifiers.items():
                 continue
                 #TODO: LA GRID SEARCH
+    else:
+        continue
 
 
 def main():
@@ -107,6 +104,10 @@ def main():
     x_test = x_test.values
     y_train = y_train.values
     y_test = y_test.values
+    oversampler = SMOTE(sampling_strategy=0.5, random_state=42)
+    x_train_oversampled, y_train_oversampled = oversampler.fit_resample(x_train, y_train)
+    #TODO: raggruppare i vari dizionari sotto uno unico, del tipo che logistic regression diviene
+    #a sua volta un dizionario con modello e griglia di parametri
     supervised_base_classifiers = {
         "LogisticRegression": LogisticRegression(),
         "RandomForest": RandomForestClassifier(),
@@ -114,8 +115,50 @@ def main():
         "Support Vector Classifier": SVC(),
         "DecisionTreeClassifier": DecisionTreeClassifier()
     }
+    log_param_search, svc_param_search = BayesSearchCV(
+        supervised_base_classifiers["LogisticRegression"],
+        {
+            'C': (1e-5, 1e+5, 'log-uniform'),
+            'gamma': (1e-5, 1e+1, 'log-uniform'),
+            'degree': (1, 8),
+            'kernel': ['linear', 'poly', 'rbf']
+        },
+        cv=CV_FOLDS,
+        scoring=SCORING
+    )
+    
+    rf_param_search = BayesSearchCV(
+        supervised_base_classifiers["RandomForest"],
+        {
+            'n_estimators': [50,100,150,200],
+            'max_depth': (2, 10),
+        },
+        cv=CV_FOLDS,
+        scoring=SCORING
+    )
+    
+    knn_param_search = BayesSearchCV(
+        supervised_base_classifiers["KNearest"],
+        {
+            'n_neighbors': [2,5,10,20],
+        },
+        cv=CV_FOLDS,
+        scoring=SCORING
+    )
+    
+    dec_tree_param_search = BayesSearchCV(
+        supervised_base_classifiers["DecisionTreeClassifier"],
+        {
+            'max_depth': (2, 10),
+        },
+        cv=CV_FOLDS,
+        scoring=SCORING
+    )    
+    search_obj = [log_param_search, rf_param_search, svc_param_search, knn_param_search, dec_tree_param_search]
     supervised_learning(supervised_base_classifiers, x_train, y_train, False)
-    supervised_learning(supervised_base_classifiers, x_train, y_train, True)
+    supervised_learning(supervised_base_classifiers, x_train_oversampled, y_train_oversampled, True)
+    hyperparameter_search_supervised_learning(supervised_base_classifiers, x_train, y_train, False, search_obj)
+    hyperparameter_search_supervised_learning(supervised_base_classifiers, x_train_oversampled, y_train_oversampled, True, search_obj)
 
 
 if __name__ == "__main__":
