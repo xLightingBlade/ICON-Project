@@ -1,0 +1,6 @@
+Bayes Search, no oversampling. Classificatore: SVC
+0.8275862068965517
+0.8249538029293906
+SVC(C=10.0)
+OrderedDict([('C', 10.0)])
+OrderedDict([('C', 10.0)])

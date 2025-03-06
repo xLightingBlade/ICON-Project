@@ -6,25 +6,30 @@ from sklearn.preprocessing import RobustScaler
 import tensorflow as tf
 import seaborn as sns
 from sklearn.manifold import TSNE
+import matplotlib.lines as mlines
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.decomposition import PCA
 from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import IsolationForest
 from sklearn.ensemble import RandomForestClassifier
 from imblearn.over_sampling import SMOTE
+from skopt.space import Real, Categorical, Integer
 import json
 import collections
 from collections import Counter
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import make_pipeline
-from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score, accuracy_score, classification_report
+from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score, accuracy_score, \
+    classification_report, make_scorer
 from collections import Counter
 from sklearn.model_selection import KFold, StratifiedKFold, cross_validate
 LABEL_GENUINE = 0
 LABEL_FRAUD = 1
 TEST_SIZE = .2
 SCORING = ['accuracy', 'precision', 'recall', 'f1']
-CV_FOLDS = 10
+CV_FOLDS = 5
 #TODO : LE PARAMETER GRID PER I CLASSIFICATORI
 
 def dataset_load_and_explore(path):
@@ -53,12 +58,12 @@ def dataset_scale(data):
     scaled_dataset['Time'] = scaled_columns['Time']
     return scaled_dataset
 
-def supervised_learning(classifiers, x_train, y_train, over_sampled):
+def supervised_learning_cv(classifiers, x_train, y_train, over_sampled):
     if not over_sampled:
         print(f"before SMOTE sampling, counter(y) = {Counter(y_train)}")
         #normale cross validation stratificata (per dataset sbilanciati), con solo scaling di amount e time nel dataset
-        with open("first_results.txt", "w") as result_file:
-            result_file.write(f'Prima normale classificazione, no oversampling. Classificatori : {list(classifiers.keys())}\n')
+        with open("first_cv_results.txt", "w") as result_file:
+            result_file.write(f'Prima normale crossvalidation, no oversampling. Classificatori : {list(classifiers.keys())}\n')
             for key, classifier in classifiers.items():
                 classifier.fit(x_train, y_train)
                 scores = cross_validate(classifier, x_train, y_train, n_jobs=-1, cv=CV_FOLDS, scoring=SCORING, verbose=1)
@@ -69,9 +74,9 @@ def supervised_learning(classifiers, x_train, y_train, over_sampled):
     else:
         # prova di oversampling sulla classe fraud (non undersampling: sulla perdita di informazioni ci si può fare poco ma sull`overfitting si può fare tanto)
         print(f"After SMOTE, counter(y) = {Counter(y_train)}")
-        with open("smote_results.txt", "w") as result_file:
+        with open("smote_cv_results.txt", "w") as result_file:
             result_file.write(
-                f'Classificazione dopo oversampling SMOTE. Classificatori : {list(classifiers.keys())}\n')
+                f'Crossvalidation dopo oversampling SMOTE. Classificatori : {list(classifiers.keys())}\n')
             for key, classifier in classifiers.items():
                 classifier.fit(x_train, y_train)
                 scores = cross_validate(classifier, x_train, y_train, n_jobs=-1, cv=CV_FOLDS, scoring=SCORING, verbose=1)
@@ -80,18 +85,38 @@ def supervised_learning(classifiers, x_train, y_train, over_sampled):
                     f"\n {scores['test_accuracy'].mean()} mean accuracy ({round(scores['test_accuracy'].std(), 5)} std)\n\n")
                 result_file.write(result)
 
-def hyperparameter_search_supervised_learning(classifiers, x_train, y_train, over_sampled, bayes_search_objects):
-    #TODO: Far fare un giro di bayessearchcv ad ogni classificatore
-    #trovare un modo decente per fare il loop e salvare i risultati
+def hyperparameter_search_supervised_learning(x_train, y_train, x_test, y_test, over_sampled, bayes_search_objects):
     if not over_sampled:
-        with open("hyperparameter_tuning_no_smote.txt", "w") as result_file:
-            result_file.write(
-                f'Classificazione con hyperparameter tuning, no SMOTE. Classificatori : {list(classifiers.keys())}\n')
-            for key, classifier in classifiers.items():
-                continue
-                #TODO: LA GRID SEARCH
+        with open('bayes_search_no_smote.txt', 'w') as result_file:
+            for opt in bayes_search_objects:
+                opt.fit(x_train, y_train)
+                result_file.write(f'Bayes Search, no oversampling. Classificatore: {opt.estimator}\n')
+                result_file.write(f'{opt.score(x_test, y_test)}\n')
+                result_file.write(f'{opt.best_score_}\n')
+                result_file.write(f'{opt.best_estimator_}\n')
+                result_file.write(f'{opt.best_params_}\n')
+                result_file.write(f'{opt.cv_results_["params"][opt.best_index_]}\n')
     else:
-        continue
+        with open('bayes_search_with_smote.txt', 'w') as result_file:
+            for opt in bayes_search_objects:
+                opt.fit(x_train, y_train)
+                result_file.write(f'Bayes Search, dati oversampling SMOTE. Classificatore: {opt.estimator}\n')
+                result_file.write(f'{opt.score(x_test, y_test)}\n')
+                result_file.write(f'{opt.best_score_}\n')
+                result_file.write(f'{opt.best_estimator_}\n')
+                result_file.write(f'{opt.best_params_}\n')
+                result_file.write(f'{opt.cv_results_["params"][opt.best_index_]}\n')
+
+def tsne_and_visualize(x_data, perp, iters):
+    tsne = TSNE(n_components=2, perplexity=perp, learning_rate='auto', verbose=1, n_iter=iters)
+    x_tsne = tsne.fit_transform(x_data)
+
+    plt.scatter(x_tsne[:, 0], x_tsne[:, 1])
+    plt.xlabel('t-SNE Dimension 1')
+    plt.ylabel('t-SNE Dimension 2')
+    plt.title(f'Plot T-SNE, perplexity {perp}, iterazioni {iters}')
+    plt.savefig(f'tsne perp {perp} iters {iters}.png', bbox_inches='tight')
+    plt.show()
 
 
 def main():
@@ -99,11 +124,11 @@ def main():
     scaled_dataset = dataset_scale(og_dataset)
     x = scaled_dataset.drop('Class', axis=1)
     y = scaled_dataset['Class']
-    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=TEST_SIZE, random_state=42)
-    x_train = x_train.values
-    x_test = x_test.values
-    y_train = y_train.values
-    y_test = y_test.values
+    x_train_og, x_test_og, y_train_og, y_test_og = train_test_split(x, y, test_size=TEST_SIZE, random_state=42)
+    x_train = x_train_og.values
+    x_test = x_test_og.values
+    y_train = y_train_og.values
+    y_test = y_test_og.values
     oversampler = SMOTE(sampling_strategy=0.5, random_state=42)
     x_train_oversampled, y_train_oversampled = oversampler.fit_resample(x_train, y_train)
     #TODO: raggruppare i vari dizionari sotto uno unico, del tipo che logistic regression diviene
@@ -115,26 +140,37 @@ def main():
         "Support Vector Classifier": SVC(),
         "DecisionTreeClassifier": DecisionTreeClassifier()
     }
-    log_param_search, svc_param_search = BayesSearchCV(
+    log_param_search = BayesSearchCV(
         supervised_base_classifiers["LogisticRegression"],
         {
-            'C': (1e-5, 1e+5, 'log-uniform'),
-            'gamma': (1e-5, 1e+1, 'log-uniform'),
-            'degree': (1, 8),
-            'kernel': ['linear', 'poly', 'rbf']
+            'C': [1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1, 1e1, 1e2, 1e3, 1e4, 1e5]
         },
         cv=CV_FOLDS,
-        scoring=SCORING
+        scoring=SCORING,
+        refit='f1',
+        verbose=2
+    )
+    svc_param_search = BayesSearchCV(
+        supervised_base_classifiers["Support Vector Classifier"],
+        {
+            'C': [1e-5, 1e-4, 1e-3, 1e-2, 1e-1, 1, 1e1, 1e2, 1e3, 1e4, 1e5]
+        },
+        cv=CV_FOLDS,
+        scoring=SCORING,
+        refit='f1',
+        verbose=2
     )
     
     rf_param_search = BayesSearchCV(
         supervised_base_classifiers["RandomForest"],
         {
-            'n_estimators': [50,100,150,200],
-            'max_depth': (2, 10),
+            'n_estimators': [75,150,200],
+            'max_depth': [2,5,8],
         },
         cv=CV_FOLDS,
-        scoring=SCORING
+        scoring=SCORING,
+        refit='f1',
+        verbose=2
     )
     
     knn_param_search = BayesSearchCV(
@@ -143,22 +179,69 @@ def main():
             'n_neighbors': [2,5,10,20],
         },
         cv=CV_FOLDS,
-        scoring=SCORING
+        scoring=SCORING,
+        refit='f1',
+        verbose=2
     )
     
     dec_tree_param_search = BayesSearchCV(
         supervised_base_classifiers["DecisionTreeClassifier"],
         {
-            'max_depth': (2, 10),
+            'max_depth': [2, 5, 7, 10],
         },
         cv=CV_FOLDS,
-        scoring=SCORING
+        scoring=SCORING,
+        refit='f1',
+        verbose=2
     )    
-    search_obj = [log_param_search, rf_param_search, svc_param_search, knn_param_search, dec_tree_param_search]
-    supervised_learning(supervised_base_classifiers, x_train, y_train, False)
-    supervised_learning(supervised_base_classifiers, x_train_oversampled, y_train_oversampled, True)
-    hyperparameter_search_supervised_learning(supervised_base_classifiers, x_train, y_train, False, search_obj)
-    hyperparameter_search_supervised_learning(supervised_base_classifiers, x_train_oversampled, y_train_oversampled, True, search_obj)
+    #search_obj = [log_param_search, rf_param_search, svc_param_search, knn_param_search, dec_tree_param_search]
+    #supervised_learning_cv(supervised_base_classifiers, x_train, y_train, False)
+    #supervised_learning_cv(supervised_base_classifiers, x_train_oversampled, y_train_oversampled, True)
+    #hyperparameter_search_supervised_learning(x_train, y_train, x_test, y_test, False, search_obj)
+    #hyperparameter_search_supervised_learning(x_train_oversampled, y_train_oversampled, x_test, y_test, True, search_obj)
+    #tsne_and_visualize(x_train_oversampled, 50, 3000)
+    #tsne_and_visualize(x_train_oversampled, 100, 3000)
+    #tsne_and_visualize(x_train_oversampled, 100, 10000)
+    # https://www.kaggle.com/code/sifodhara/credit-card-fraud-detection-using-isolation-forest per dei plot sui dati, da mettere qua per abbellire sto progetto
+    # Initialize and fit the Isolation Forest model
+    contamination_ratio = scaled_dataset["Class"].sum() / len(scaled_dataset)
+    print("Contamination ratio:", contamination_ratio)
+
+    iso = IsolationForest(contamination=contamination_ratio, n_estimators=200, random_state=42, n_jobs=-1, verbose=2)
+    iso.fit(x)
+
+    # Predict anomalies: 1 = inlier, -1 = outlier
+    scaled_dataset["anomaly"] = iso.predict(x)
+    # Map the predictions: 1 -> 0 (normal) and -1 -> 1 (anomaly)
+    scaled_dataset["anomaly_label"] = scaled_dataset["anomaly"].map({1: 0, -1: 1})
+    # Reduce data to 2 principal components for visualization
+    pca = PCA(n_components=2, random_state=42)
+    X_pca = pca.fit_transform(x)
+
+    # Add PCA components to the dataframe for plotting
+    scaled_dataset["PC1"] = X_pca[:, 0]
+    scaled_dataset["PC2"] = X_pca[:, 1]
+
+    # Create a scatter plot with different colors for normal and anomalous points
+    plt.figure(figsize=(10, 6))
+    colors = {0: 'blue', 1: 'red'}
+    plt.scatter(scaled_dataset["PC1"], scaled_dataset["PC2"],
+                c=scaled_dataset["anomaly_label"].map(colors),
+                alpha=0.6,
+                s=10)
+    plt.title("Isolation Forest: Anomaly Detection on Credit Card Fraud Data")
+    plt.xlabel("Principal Component 1")
+    plt.ylabel("Principal Component 2")
+
+    # Create custom legend
+    normal_dot = mlines.Line2D([], [], color='blue', marker='o', linestyle='None',
+                               markersize=8, label='Normal')
+    anomaly_dot = mlines.Line2D([], [], color='red', marker='o', linestyle='None',
+                                markersize=8, label='Anomaly')
+    plt.legend(handles=[normal_dot, anomaly_dot])
+    plt.savefig("isolation forest.png")
+    plt.show()
+
 
 
 if __name__ == "__main__":

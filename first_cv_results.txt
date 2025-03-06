@@ -1,0 +1,36 @@
+Prima normale crossvalidation, no oversampling. Classificatori : ['LogisticRegression', 'RandomForest', 'KNearest', 'Support Vector Classifier', 'DecisionTreeClassifier']
+Classifiers: LogisticRegression has
+ 0.8928587289903079 mean precision (0.02833 std)
+ 0.6219084712755599 mean recall (0.05688 std)
+ 0.731125391041866 mean f1 score (0.03688 std)
+
+ 0.9992143781957032 mean accuracy (8e-05 std)
+
+Classifiers: RandomForestClassifier has
+ 0.9500368227319536 mean precision (0.01933 std)
+ 0.7563777994157741 mean recall (0.03681 std)
+ 0.8413343784576662 mean f1 score (0.01861 std)
+
+ 0.999508437753736 mean accuracy (5e-05 std)
+
+Classifiers: KNeighborsClassifier has
+ 0.9162592564007296 mean precision (0.04658 std)
+ 0.7436871145731906 mean recall (0.04395 std)
+ 0.8192123829101503 mean f1 score (0.02555 std)
+
+ 0.9994338256270711 mean accuracy (8e-05 std)
+
+Classifiers: SVC has
+ 0.9405220350852206 mean precision (0.02579 std)
+ 0.6980525803310613 mean recall (0.04135 std)
+ 0.7999391241574406 mean f1 score (0.02003 std)
+
+ 0.9993987140380522 mean accuracy (4e-05 std)
+
+Classifiers: DecisionTreeClassifier has
+ 0.7373243768927257 mean precision (0.03511 std)
+ 0.7716650438169426 mean recall (0.04833 std)
+ 0.752121227339037 mean f1 score (0.0168 std)
+
+ 0.9991222102745286 mean accuracy (6e-05 std)
+

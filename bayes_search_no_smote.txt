@@ -1,0 +1,24 @@
+Bayes Search, no oversampling. Classificatore: LogisticRegression()
+0.6987951807228916
+0.731125391041866
+LogisticRegression(C=1)
+OrderedDict([('C', 1)])
+OrderedDict([('C', 1)])
+Bayes Search, no oversampling. Classificatore: RandomForestClassifier()
+0.8439306358381503
+0.8429395649748684
+RandomForestClassifier(max_depth=8, n_estimators=200)
+OrderedDict([('max_depth', 8), ('n_estimators', 200)])
+OrderedDict([('max_depth', 8), ('n_estimators', 200)])
+Bayes Search, no oversampling. Classificatore: KNeighborsClassifier()
+0.8342857142857143
+0.8192123829101503
+KNeighborsClassifier()
+OrderedDict([('n_neighbors', 5)])
+OrderedDict([('n_neighbors', 5)])
+Bayes Search, no oversampling. Classificatore: DecisionTreeClassifier()
+0.8648648648648649
+0.8236223908463799
+DecisionTreeClassifier(max_depth=7)
+OrderedDict([('max_depth', 7)])
+OrderedDict([('max_depth', 7)])
