@@ -8,13 +8,14 @@ import seaborn as sns
 from sklearn.manifold import TSNE
 import matplotlib.lines as mlines
 from sklearn.linear_model import LogisticRegression
-from sklearn.svm import SVC
+from sklearn.svm import SVC, LinearSVC
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.decomposition import PCA
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import IsolationForest
 from sklearn.ensemble import RandomForestClassifier
 from imblearn.over_sampling import SMOTE
+from sklearn.metrics import accuracy_score
 from skopt.space import Real, Categorical, Integer
 import json
 import collections
@@ -108,14 +109,14 @@ def hyperparameter_search_supervised_learning(x_train, y_train, x_test, y_test, 
                 result_file.write(f'{opt.cv_results_["params"][opt.best_index_]}\n')
 
 def tsne_and_visualize(x_data, perp, iters):
-    tsne = TSNE(n_components=2, perplexity=perp, learning_rate='auto', verbose=1, n_iter=iters)
+    tsne = TSNE(n_components=2, perplexity=perp, learning_rate='auto', verbose=1, n_iter=iters, n_jobs=-1)
     x_tsne = tsne.fit_transform(x_data)
 
     plt.scatter(x_tsne[:, 0], x_tsne[:, 1])
     plt.xlabel('t-SNE Dimension 1')
     plt.ylabel('t-SNE Dimension 2')
     plt.title(f'Plot T-SNE, perplexity {perp}, iterazioni {iters}')
-    plt.savefig(f'tsne perp {perp} iters {iters}.png', bbox_inches='tight')
+    plt.savefig(f'tsne no smote perp {perp} iters {iters}.png', bbox_inches='tight')
     plt.show()
 
 
@@ -200,10 +201,13 @@ def main():
     #hyperparameter_search_supervised_learning(x_train, y_train, x_test, y_test, False, search_obj)
     #hyperparameter_search_supervised_learning(x_train_oversampled, y_train_oversampled, x_test, y_test, True, search_obj)
     #tsne_and_visualize(x_train_oversampled, 50, 3000)
-    #tsne_and_visualize(x_train_oversampled, 100, 3000)
-    #tsne_and_visualize(x_train_oversampled, 100, 10000)
+    #tsne_and_visualize(x_train_oversampled, 100, 5000)
+    #tsne_and_visualize(x_train_oversampled, 50, 10000)
+    #tsne_and_visualize(x_train, 50, 10000)
+    # tsne_and_visualize(x_train, 80, 10000)
     # https://www.kaggle.com/code/sifodhara/credit-card-fraud-detection-using-isolation-forest per dei plot sui dati, da mettere qua per abbellire sto progetto
     # Initialize and fit the Isolation Forest model
+    """
     contamination_ratio = scaled_dataset["Class"].sum() / len(scaled_dataset)
     print("Contamination ratio:", contamination_ratio)
 
@@ -241,7 +245,7 @@ def main():
     plt.legend(handles=[normal_dot, anomaly_dot])
     plt.savefig("isolation forest.png")
     plt.show()
-
+    """
 
 
 if __name__ == "__main__":
