@@ -32,6 +32,8 @@ from sklearn.model_selection import KFold, StratifiedKFold, cross_validate
 from pgmpy.estimators import MaximumLikelihoodEstimator, HillClimbSearch
 from pgmpy.inference import VariableElimination
 from pgmpy.models import BayesianNetwork
+import pickle
+from pgmpy.readwrite import BIFReader, BIFWriter
 import networkx as nx
 LABEL_GENUINE = 0
 LABEL_FRAUD = 1
@@ -304,6 +306,11 @@ def bayesian_network_structure_learning(dataframe: pandas.DataFrame, n_samples, 
     //capire se funge il plt savefig e se innanzitutto funge networkx, altrimenti provare con daft
     plt.savefig(f"bayesian network {n_samples} samples {'continuous data' if is_data_continuous else ''}.png")
     plt.draw()
+    bayesian_network_model = BayesianNetwork(bayesian_network.edges())
+    bayesian_network_model.fit(df, estimator=MaximumLikelihoodEstimator, n_jobs=-1)
+    //https://pgmpy.org/readwrite/bif.html
+    writer = BIFWriter(bayesian_network_model)
+    writer.write_bif(filename=f'bnet_{n_samples}samples_{'continuous' if is_data_continuous else ''}.bif')
     
 def get_dataframe_sample(dataframe, n_samples):
     #prima uno shuffle del dataframe
