@@ -32,7 +32,7 @@ from sklearn.model_selection import KFold, StratifiedKFold, cross_validate
 from pgmpy.estimators import MaximumLikelihoodEstimator, HillClimbSearch
 from pgmpy.inference import VariableElimination
 from pgmpy.models import BayesianNetwork
-
+import networkx as nx
 LABEL_GENUINE = 0
 LABEL_FRAUD = 1
 TEST_SIZE = .2
@@ -300,9 +300,11 @@ def bayesian_network_structure_learning(dataframe: pandas.DataFrame, n_samples, 
     df = get_dataframe_sample(dataframe, n_samples)
     net_estimator = HillClimbSearch(df)
     bayesian_network:pgmpy.base.DAG = net_estimator.estimate()
-    model_graph = bayesian_network.to_graphviz()
-    model_graph.draw(f"bayesian network {n_samples} samples {'continuous data' if is_data_continuous else ''}.png", prog="dot")
-
+    nx.draw(bayesian_network)
+    //capire se funge il plt savefig e se innanzitutto funge networkx, altrimenti provare con daft
+    plt.savefig(f"bayesian network {n_samples} samples {'continuous data' if is_data_continuous else ''}.png")
+    plt.draw()
+    
 def get_dataframe_sample(dataframe, n_samples):
     #prima uno shuffle del dataframe
     dataframe = dataframe.sample(frac=1).reset_index(drop=True)
