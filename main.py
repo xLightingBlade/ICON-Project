@@ -44,7 +44,22 @@ def dataset_load_and_explore(path):
     print(genuine_proportion)
     return og_dataset
 
-def dataset_scale(data:DataFrame):
+def dataset_oversample(data:DataFrame):
+    oversampler = SMOTE(sampling_strategy=0.5, random_state=42)
+    x = data.drop('Class', axis=1)
+    y = data['Class']
+    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=TEST_SIZE, random_state=42)
+    x_train_oversampled, y_train_oversampled = oversampler.fit_resample(x_train, y_train)
+    x_train_res_df = pd.DataFrame(x_train_oversampled, columns=x.columns)
+    x_train_res_df['Class'] = y_train_oversampled
+    x_test = pd.DataFrame(x_test, columns = x.columns)
+    x_test['Class'] = y_test
+    data = pd.concat([x_train_res_df, x_test], ignore_index=True)
+    return data
+
+def dataset_scale(data:DataFrame, to_oversample = False):
+    print('original data')
+    print(data.describe())
     x = data.drop('Class', axis=1)
     y = data['Class']
     x_train, x_test, y_train, y_test = train_test_split(x, y, random_state=42, test_size=TEST_SIZE)
@@ -56,6 +71,11 @@ def dataset_scale(data:DataFrame):
     train_data = pd.concat([x_train_scaled, y_train], axis=1)
     test_data = pd.concat([x_test_scaled, y_test], axis=1)
     data = pd.concat([train_data, test_data], ignore_index=True)
+    if to_oversample:
+        data = dataset_oversample(data)
+        print('dataframe oversampled')
+        print(data.describe())
+        return data
     print("Dataframe 'scalato'")
     print(data.describe())
     return data
@@ -209,15 +229,17 @@ def  get_bayes_search_list(classifiers):
 def main():
     og_dataset = dataset_load_and_explore("creditcard.csv")
     scaled_dataset = dataset_scale(og_dataset)
+    oversampled_dataset = dataset_scale(og_dataset, True)
     x = scaled_dataset.drop('Class', axis=1)
     y = scaled_dataset['Class']
-    x_train_og, x_test_og, y_train_og, y_test_og = train_test_split(x, y, test_size=TEST_SIZE, random_state=42)
-    x_train = x_train_og.values
-    x_test = x_test_og.values
-    y_train = y_train_og.values
-    y_test = y_test_og.values
-    oversampler = SMOTE(sampling_strategy=0.5, random_state=42)
-    x_train_oversampled, y_train_oversampled = oversampler.fit_resample(x_train, y_train)
+    x_oversampled = oversampled_dataset.drop('Class', axis=1)
+    y_oversampled = oversampled_dataset['Class']
+    x_train_scaled, x_test_scaled, y_train_scaled, y_test_scaled = train_test_split(x, y, test_size=TEST_SIZE, random_state=42)
+    x_train = x_train_scaled.values
+    x_test = x_test_scaled.values
+    y_train = y_train_scaled.values
+    y_test = y_test_scaled.values
+    x_train_oversampled, x_test_oversampled, y_train_oversampled, y_test_oversampled  = train_test_split(x_oversampled, y_oversampled, test_size=TEST_SIZE, random_state=42)
 
     supervised_base_classifiers = {
         "LogisticRegression": LogisticRegression(random_state=42),
@@ -240,9 +262,9 @@ def main():
     #TODO: visualizzare curve apprendimento e risultati tramite grafico
     #TODO: refactor di sti due tuning, troppe ripetizioni di codice
     #bayes_search_hyperparam(x_train, y_train, x_test, y_test, False, bayes_search_obj)
-    #bayes_search_hyperparam(x_train_oversampled, y_train_oversampled, x_test, y_test, True, bayes_search_obj)
+    #bayes_search_hyperparam(x_train_oversampled, y_train_oversampled, x_test_oversampled, y_test_oversampled, True, bayes_search_obj)
     #grid_search_hyperparam(supervised_base_classifiers, x_train, y_train, x_test, y_test, False, grid_search_obj)
-    #grid_search_hyperparam(supervised_base_classifiers, x_train_oversampled, y_train_oversampled, x_test, y_test, True, grid_search_obj)
+    #grid_search_hyperparam(supervised_base_classifiers, x_train_oversampled, y_train_oversampled, x_test_oversampled, y_test_oversampled, True, grid_search_obj)
     #bayesian_network_structure_learning()
     #tsne_and_visualize(x_train_oversampled, 50, 3000)
     #tsne_and_visualize(x_train_oversampled, 100, 5000)
@@ -295,11 +317,14 @@ def main():
     #data_discretization_test(scaled_dataset, supervised_base_classifiers)
     #results_df = pd.read_csv("discretization results.csv")
     #print(results_df.sort_values('f1', ascending=False))
-    #dunque controllo i risultati, sceglo quei parametri per la discretizzazione del dataframe
-    #discretizzato, posso poi fare structure learning, ci provo due volte per vedere se più sample rivelano strutture diverse
-    #per ora uso 20 bins per fargli (provare) fare qualcosa overnight
     #bayesian_network_structure_learning(scaled_dataset, 1000, 20, "kmeans")
-    bayesian_network_simulate_single_sample('bnet 100000 samples 20 bins kmeans strategy 6 features max likelihood.bif')
+    print('inizio bayes')
+    which_model = 'bnet 100000 samples 20 bins kmeans strategy 6 features max likelihood.bif'
+    bayesian_model = get_bayesian_network_model(which_model)
+    one_sample = bayesian_network_simulate_samples(bayesian_model, 1)
+    bayesian_network_inference(bayesian_model, one_sample)
+    #more_samples = bayesian_network_simulate_samples(bayesian_model, 100)
+
 
 def data_discretization_test(data, classifiers):
     x = data.drop('Class', axis=1)
@@ -343,7 +368,6 @@ def data_discretization_test(data, classifiers):
     print(results_df)
     results_df.to_csv("discretization results.csv", index=False)
 
-
 def discretize_df(dataframe:DataFrame, bins, strategy):
     print('prima')
     print(dataframe.head())
@@ -355,7 +379,6 @@ def discretize_df(dataframe:DataFrame, bins, strategy):
     discrete_df = discrete_df[dataframe.columns]
     print(discrete_df.head())
     return discrete_df
-
 
 #tipizzo il parametro dataframe per aiutarmi con l`IDE
 def bayesian_network_structure_learning(dataframe: pandas.DataFrame, n_samples, discrete_bins, discrete_strategy):
@@ -419,8 +442,7 @@ def dataframe_choose_cols_and_sample(dataframe:DataFrame, n_samples, bins, strat
     print(discrete_sample.head())
     return discrete_sample
 
-def bayesian_network_inference(model_path, data_to_predict:pd.Series):
-    model = get_bayesian_network_model(model_path)
+def bayesian_network_inference(model, data_to_predict):
     inference = VariableElimination(model)
     data_to_predict = {
         "Amount" : data_to_predict['Amount'],
@@ -432,10 +454,10 @@ def bayesian_network_inference(model_path, data_to_predict:pd.Series):
     res = inference.query(variables = ['Class'], evidence =data_to_predict)
     print(res)
 
-def bayesian_network_simulate_single_sample(model_path):
-    model = get_bayesian_network_model(model_path)
-    sample = model.simulate(n_samples=1)
-    print(sample)
+def bayesian_network_simulate_samples(model:BayesianNetwork, n_samples):
+    samples = model.simulate(n_samples=n_samples)
+    print(samples)
+    return samples
 
 def get_bayesian_network_model(model_path):
     reader = BIFReader(model_path)
