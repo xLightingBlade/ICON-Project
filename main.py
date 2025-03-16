@@ -1,5 +1,4 @@
 from collections import Counter
-from time import sleep
 
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -8,14 +7,14 @@ import pandas as pd
 import pgmpy.base
 from imblearn.over_sampling import SMOTE
 from pandas import DataFrame
-from pgmpy.estimators import MaximumLikelihoodEstimator, HillClimbSearch, ExpectationMaximization
+from pgmpy.estimators import MaximumLikelihoodEstimator, HillClimbSearch
 from pgmpy.inference import VariableElimination
 from pgmpy.models import BayesianNetwork
 from pgmpy.readwrite import BIFWriter, BIFReader
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.manifold import TSNE
-from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score
+from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score
 from sklearn.model_selection import cross_validate
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.neighbors import KNeighborsClassifier
@@ -23,6 +22,9 @@ from sklearn.preprocessing import RobustScaler, KBinsDiscretizer
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 from skopt import BayesSearchCV
+import tensorflow as tf
+import numpy as np
+from tensorflow.python.keras.utils.version_utils import callbacks
 
 LABEL_GENUINE = 0
 LABEL_FRAUD = 1
@@ -318,13 +320,25 @@ def main():
     #results_df = pd.read_csv("discretization results.csv")
     #print(results_df.sort_values('f1', ascending=False))
     #bayesian_network_structure_learning(scaled_dataset, 1000, 20, "kmeans")
-    print('inizio bayes')
-    which_model = 'bnet 100000 samples 20 bins kmeans strategy 6 features max likelihood.bif'
-    bayesian_model = get_bayesian_network_model(which_model)
-    one_sample = bayesian_network_simulate_samples(bayesian_model, 1)
-    bayesian_network_inference(bayesian_model, one_sample)
-    #more_samples = bayesian_network_simulate_samples(bayesian_model, 100)
+    #print('inizio bayes')
+    #which_model = 'bnet 100000 samples 20 bins kmeans strategy 6 features max likelihood.bif'
+    #bayesian_model = get_bayesian_network_model(which_model)
+    #generated_samples = bayesian_network_simulate_samples(bayesian_model, 10000) #accuracy 0.9544
+    #bayesian_network_inference(bayesian_model, generated_samples)
+    #samples = dataframe_get_sample(oversampled_dataset, 10000, True)
+    #bayesian_network_inference(bayesian_model, samples)
+    neural_net(oversampled_dataset)
 
+
+def dataframe_get_sample(dataframe:DataFrame, n_samples, to_discretize=False):
+    dataframe = dataframe.sample(frac=1).reset_index(drop=True)
+    fraud_df = dataframe.loc[dataframe['Class'] == 1].sample(n_samples // 2)
+    real_df = dataframe.loc[dataframe['Class'] == 0].sample(n_samples // 2)
+    samples = pd.concat([fraud_df, real_df], ignore_index=True)
+    if to_discretize:
+        discrete_sample = discretize_df(samples, 20, 'kmeans')
+        return discrete_sample
+    return samples
 
 def data_discretization_test(data, classifiers):
     x = data.drop('Class', axis=1)
@@ -443,16 +457,29 @@ def dataframe_choose_cols_and_sample(dataframe:DataFrame, n_samples, bins, strat
     return discrete_sample
 
 def bayesian_network_inference(model, data_to_predict):
+    predicted_classes = []
     inference = VariableElimination(model)
-    data_to_predict = {
-        "Amount" : data_to_predict['Amount'],
-        "V1": data_to_predict['V1'],
-        "V2": data_to_predict['V2'],
-        "V3": data_to_predict['V3'],
-        "Time": data_to_predict['Time']
-    }
-    res = inference.query(variables = ['Class'], evidence =data_to_predict)
-    print(res)
+    amount = data_to_predict['Amount'].to_numpy()
+    time = data_to_predict['Time'].to_numpy()
+    v1 = data_to_predict['V1'].to_numpy()
+    v2 = data_to_predict['V2'].to_numpy()
+    v3 = data_to_predict['V3'].to_numpy()
+    classes = data_to_predict['Class'].to_numpy()
+    real_classes = [int(x) for x in classes]
+    for i in range(len(data_to_predict)):
+        data = {
+            "Amount" : amount[i],
+            "V1": v1[i],
+            "V2": v2[i],
+            "V3": v3[i],
+            "Time": time[i]
+        }
+        res = inference.query(variables = ['Class'], evidence = data)
+        class_res = inference.map_query(variables = ['Class'], evidence = data)
+        #print(res)
+        #print(class_res)
+        predicted_classes.append(int(class_res['Class']))
+    print(accuracy_score(real_classes, predicted_classes))
 
 def bayesian_network_simulate_samples(model:BayesianNetwork, n_samples):
     samples = model.simulate(n_samples=n_samples)
@@ -463,6 +490,55 @@ def get_bayesian_network_model(model_path):
     reader = BIFReader(model_path)
     model = reader.get_model()
     return model
+
+def neural_net(dataframe:DataFrame):
+    inputs = dataframe.drop('Class', axis=1)
+    target = dataframe['Class']
+    x_train, x_test, y_train, y_test = train_test_split(inputs, target, test_size=0.2)
+    input_tensor = tf.convert_to_tensor(inputs)
+    stop_early = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
+    normalizer = tf.keras.layers.Normalization(axis=-1)
+    normalizer.adapt(np.array(inputs))
+
+    model = tf.keras.Sequential([
+        normalizer,
+        tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
+        tf.keras.layers.Dropout(0.3),
+        tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
+        tf.keras.layers.Dropout(0.3),
+        tf.keras.layers.Dense(1)
+    ])
+
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
+                  loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
+                  metrics=['accuracy', tf.keras.metrics.Precision(), tf.keras.metrics.Recall()])
+
+    history = model.fit(x_train, y_train, epochs=100, batch_size=32, validation_split = 0.2, callbacks = [stop_early])
+    model.save('neural net.keras')
+    model.evaluate(x_test, y_test)
+    plot_neural_net(history)
+
+def plot_neural_net(history):
+    fig, axs = plt.subplots(1, 2)
+
+    # create accuracy subplot
+    axs[0].plot(history.history["accuracy"], label="accuracy")
+    axs[0].plot(history.history['val_accuracy'], label="val_accuracy")
+    axs[0].set_ylabel("Accuracy")
+    axs[0].legend(loc="lower right")
+    axs[0].set_title("Accuracy evaluation")
+
+    # create loss subplot
+    axs[1].plot(history.history["loss"], label="loss")
+    axs[1].plot(history.history['val_loss'], label="val_loss")
+    axs[1].set_xlabel("Epoch")
+    axs[1].set_ylabel("Loss")
+    axs[1].legend(loc="upper right")
+    axs[1].set_title("Loss evaluation")
+
+    text = f"Learning rate 0.0001, 100 epochs."
+    plt.figtext(0.5, 0.01, text, wrap=True, horizontalalignment='center', fontsize=12)
+    plt.show()
 
 if __name__ == "__main__":
     main()
