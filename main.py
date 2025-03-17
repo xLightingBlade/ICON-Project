@@ -1,6 +1,7 @@
 from collections import Counter
 
 import matplotlib.pyplot as plt
+import matplotlib.lines as mlines
 import networkx as nx
 import pandas
 import pandas as pd
@@ -11,10 +12,12 @@ from pgmpy.estimators import MaximumLikelihoodEstimator, HillClimbSearch
 from pgmpy.inference import VariableElimination
 from pgmpy.models import BayesianNetwork
 from pgmpy.readwrite import BIFWriter, BIFReader
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.decomposition import PCA
+from sklearn.ensemble import RandomForestClassifier, IsolationForest
 from sklearn.linear_model import LogisticRegression
 from sklearn.manifold import TSNE
-from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score
+from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, roc_curve, classification_report, \
+    confusion_matrix, roc_auc_score
 from sklearn.model_selection import cross_validate
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.neighbors import KNeighborsClassifier
@@ -276,45 +279,10 @@ def main():
 
     # https://www.kaggle.com/code/sifodhara/credit-card-fraud-detection-using-isolation-forest per dei plot sui dati, da mettere qua per abbellire sto progetto
     #Isolation forest per visualizzare anomalie
-    """
-    contamination_ratio = scaled_dataset["Class"].sum() / len(scaled_dataset)
-    print("Contamination ratio:", contamination_ratio)
-    
-    iso = IsolationForest(contamination=contamination_ratio, n_estimators=200, random_state=42, n_jobs=-1, verbose=2)
-    iso.fit(x)
+    #isolation_forest(scaled_dataset)
+    isolation_forest(oversampled_dataset, True)
 
-    # Predict anomalies: 1 = inlier, -1 = outlier
-    scaled_dataset["anomaly"] = iso.predict(x)
-    # Map the predictions: 1 -> 0 (normal) and -1 -> 1 (anomaly)
-    scaled_dataset["anomaly_label"] = scaled_dataset["anomaly"].map({1: 0, -1: 1})
-    # Reduce data to 2 principal components for visualization
-    pca = PCA(n_components=2, random_state=42)
-    X_pca = pca.fit_transform(x)
 
-    # Add PCA components to the dataframe for plotting
-    scaled_dataset["PC1"] = X_pca[:, 0]
-    scaled_dataset["PC2"] = X_pca[:, 1]
-
-    # Create a scatter plot with different colors for normal and anomalous points
-    plt.figure(figsize=(10, 6))
-    colors = {0: 'blue', 1: 'red'}
-    plt.scatter(scaled_dataset["PC1"], scaled_dataset["PC2"],
-                c=scaled_dataset["anomaly_label"].map(colors),
-                alpha=0.6,
-                s=10)
-    plt.title("Isolation Forest: Anomaly Detection on Credit Card Fraud Data")
-    plt.xlabel("Principal Component 1")
-    plt.ylabel("Principal Component 2")
-
-    # Create custom legend
-    normal_dot = mlines.Line2D([], [], color='blue', marker='o', linestyle='None',
-                               markersize=8, label='Normal')
-    anomaly_dot = mlines.Line2D([], [], color='red', marker='o', linestyle='None',
-                                markersize=8, label='Anomaly')
-    plt.legend(handles=[normal_dot, anomaly_dot])
-    plt.savefig("isolation forest.png")
-    plt.show()
-    """
     #testo le varie combinazioni di discretizzazione su modelli base, per capire il giusto numero di bins
     #data_discretization_test(scaled_dataset, supervised_base_classifiers)
     #results_df = pd.read_csv("discretization results.csv")
@@ -327,7 +295,7 @@ def main():
     #bayesian_network_inference(bayesian_model, generated_samples)
     #samples = dataframe_get_sample(oversampled_dataset, 10000, True)
     #bayesian_network_inference(bayesian_model, samples)
-    neural_net(oversampled_dataset)
+    #neural_net(oversampled_dataset)
 
 
 def dataframe_get_sample(dataframe:DataFrame, n_samples, to_discretize=False):
@@ -539,6 +507,59 @@ def plot_neural_net(history):
     text = f"Learning rate 0.0001, 100 epochs."
     plt.figtext(0.5, 0.01, text, wrap=True, horizontalalignment='center', fontsize=12)
     plt.show()
+
+def isolation_forest(dataframe, is_oversampled_dataset = False):
+    print(dataframe.info())
+    contamination = dataframe["Class"].sum() / len(dataframe)
+    x = dataframe.drop('Class', axis=1)
+    y = dataframe['Class']
+    iso = IsolationForest(contamination=contamination, n_estimators=200,  random_state=42, n_jobs=-1, verbose=2)
+    iso.fit(x)
+    y_pred = iso.score_samples(x)
+    fpr_correct, tpr_correct, _ = roc_curve(y, -y_pred)
+    plt.plot(fpr_correct, tpr_correct, 'black', lw=1)
+    plt.xlabel('False positive rate')
+    plt.ylabel('True positive rate')
+    plt.title("Isolation Forest: ROC curve")
+    plt.savefig(f"isolation forest roc curve {'smote' if is_oversampled_dataset else ''}.png")
+    plt.show()
+
+    # Predict anomalies: 1 = inlier, -1 = outlier
+    dataframe["outlier"] = iso.predict(x)
+    y_pred = dataframe["outlier"].map({1: 0, -1: 1})
+    print(roc_auc_score(y,y_pred))
+    # Map the predictions: 1 -> 0 (normal) and -1 -> 1 (anomaly)
+
+    dataframe["outlier_label"] = dataframe["outlier"].map({1: 0, -1: 1})
+    # Reduce data to 2 principal components for visualization
+    pca = PCA(n_components=2, random_state=42)
+    x_pca = pca.fit_transform(x)
+
+    # Add PCA components to the dataframe for plotting
+    dataframe["PC1"] = x_pca[:, 0]
+    dataframe["PC2"] = x_pca[:, 1]
+
+    # Create a scatter plot with different colors for normal and anomalous points
+    plt.figure(figsize=(10, 6))
+    colors = {0: 'blue', 1: 'red'}
+    plt.scatter(dataframe["PC1"], dataframe["PC2"],
+                c=dataframe["outlier_label"].map(colors),
+                alpha=0.6,
+                s=10)
+    plt.title("Isolation Forest plot")
+    plt.xlabel("Principal Component 1")
+    plt.ylabel("Principal Component 2")
+
+    # Create custom legend
+    normal_dot = mlines.Line2D([], [], color='blue', marker='o', linestyle='None',
+                               markersize=8, label='Normal')
+    anomaly_dot = mlines.Line2D([], [], color='red', marker='o', linestyle='None',
+                                markersize=8, label='Outlier')
+    plt.legend(handles=[normal_dot, anomaly_dot])
+    plt.savefig(f"isolation forest {'smote' if is_oversampled_dataset else ''}.png")
+    plt.show()
+
+
 
 if __name__ == "__main__":
     main()
