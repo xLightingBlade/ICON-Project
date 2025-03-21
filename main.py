@@ -1,11 +1,15 @@
 from collections import Counter
 
-import matplotlib.pyplot as plt
+import keras_tuner
 import matplotlib.lines as mlines
+import matplotlib.pyplot as plt
 import networkx as nx
+import numpy as np
 import pandas
 import pandas as pd
 import pgmpy.base
+import seaborn as sns
+import tensorflow as tf
 from imblearn.over_sampling import SMOTE
 from pandas import DataFrame
 from pgmpy.estimators import MaximumLikelihoodEstimator, HillClimbSearch
@@ -16,18 +20,17 @@ from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestClassifier, IsolationForest
 from sklearn.linear_model import LogisticRegression
 from sklearn.manifold import TSNE
-from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score, roc_curve, classification_report, \
-    confusion_matrix, roc_auc_score
-from sklearn.model_selection import cross_validate
+from sklearn.metrics import (precision_score, recall_score, f1_score, accuracy_score, roc_curve, roc_auc_score)
+from sklearn.model_selection import cross_validate, StratifiedKFold
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import RobustScaler, KBinsDiscretizer
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 from skopt import BayesSearchCV
-import tensorflow as tf
-import numpy as np
-from tensorflow.python.keras.utils.version_utils import callbacks
+
+import data_utils
+import neural_net_hypermodel
 
 LABEL_GENUINE = 0
 LABEL_FRAUD = 1
@@ -35,216 +38,18 @@ TEST_SIZE = .2
 SCORING = ['accuracy', 'precision', 'recall', 'f1']
 CV_FOLDS = 5
 
-def dataset_load_and_explore(path):
-    og_dataset = pd.read_csv(path)
-    print(og_dataset.head())
-    print(og_dataset[pd.isnull(og_dataset).any(axis=1)])   #nessuna riga con valori NaN
-    print(og_dataset.dtypes)
-    for column in og_dataset.columns:
-       print(f'Column : {column} \n Variance: {og_dataset[column].var()}\n')
-
-    genuine_proportion = round(og_dataset["Class"].value_counts(normalize=True)[0] * 100, 2)
-    fraud_proportion = round(100 - genuine_proportion, 2)
-    print(fraud_proportion)
-    print(genuine_proportion)
-    return og_dataset
-
-def dataset_oversample(data:DataFrame):
-    oversampler = SMOTE(sampling_strategy=0.5, random_state=42)
-    x = data.drop('Class', axis=1)
-    y = data['Class']
-    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=TEST_SIZE, random_state=42)
-    x_train_oversampled, y_train_oversampled = oversampler.fit_resample(x_train, y_train)
-    x_train_res_df = pd.DataFrame(x_train_oversampled, columns=x.columns)
-    x_train_res_df['Class'] = y_train_oversampled
-    x_test = pd.DataFrame(x_test, columns = x.columns)
-    x_test['Class'] = y_test
-    data = pd.concat([x_train_res_df, x_test], ignore_index=True)
-    return data
-
-def dataset_scale(data:DataFrame, to_oversample = False):
-    print('original data')
-    print(data.describe())
-    x = data.drop('Class', axis=1)
-    y = data['Class']
-    x_train, x_test, y_train, y_test = train_test_split(x, y, random_state=42, test_size=TEST_SIZE)
-    scaler = RobustScaler()
-    x_train_scaled = scaler.fit_transform(x_train)
-    x_test_scaled = scaler.transform(x_test)
-    x_train_scaled = pd.DataFrame(x_train_scaled, columns=x.columns, index=x_train.index)
-    x_test_scaled = pd.DataFrame(x_test_scaled, columns=x.columns, index=x_test.index)
-    train_data = pd.concat([x_train_scaled, y_train], axis=1)
-    test_data = pd.concat([x_test_scaled, y_test], axis=1)
-    data = pd.concat([train_data, test_data], ignore_index=True)
-    if to_oversample:
-        data = dataset_oversample(data)
-        print('dataframe oversampled')
-        print(data.describe())
-        return data
-    print("Dataframe 'scalato'")
-    print(data.describe())
-    return data
-
-def supervised_base_cross_validate(classifiers, x_train, y_train, over_sampled):
-    if not over_sampled:
-        print(f"before SMOTE sampling, counter(y) = {Counter(y_train)}")
-        #normale cross validation stratificata (per dataset sbilanciati), con solo scaling di amount e time nel dataset
-        with open("first_cv_results.txt", "w") as result_file:
-            result_file.write(f'Prima normale crossvalidation, no oversampling. Classificatori : {list(classifiers.keys())}\n')
-            for key, classifier in classifiers.items():
-                classifier.fit(x_train, y_train)
-                scores = cross_validate(classifier, x_train, y_train, n_jobs=-1, cv=CV_FOLDS, scoring=SCORING, verbose=1)
-                result = (f"Classifiers: {classifier.__class__.__name__} has\n {scores['test_precision'].mean()} mean precision ({round(scores['test_precision'].std(), 5)} std)"
-                    f"\n {scores['test_recall'].mean()} mean recall ({round(scores['test_recall'].std(), 5)} std)\n {scores['test_f1'].mean()} mean f1 score ({round(scores['test_f1'].std(), 5)} std)\n"
-                    f"\n {scores['test_accuracy'].mean()} mean accuracy ({round(scores['test_accuracy'].std(), 5)} std)\n\n")
-                result_file.write(result)
-    else:
-        # prova di oversampling sulla classe fraud (non undersampling: sulla perdita di informazioni ci si può fare poco ma sull`overfitting si può fare tanto)
-        print(f"After SMOTE, counter(y) = {Counter(y_train)}")
-        with open("first first smote_cv_results.txt", "w") as result_file:
-            result_file.write(
-                f'Crossvalidation dopo oversampling SMOTE. Classificatori : {list(classifiers.keys())}\n')
-            for key, classifier in classifiers.items():
-                classifier.fit(x_train, y_train)
-                scores = cross_validate(classifier, x_train, y_train, n_jobs=-1, cv=CV_FOLDS, scoring=SCORING, verbose=1)
-                result = (f"Classifiers: {classifier.__class__.__name__} has\n {scores['test_precision'].mean()} mean precision ({round(scores['test_precision'].std(), 5)} std)"
-                    f"\n {scores['test_recall'].mean()} mean recall ({round(scores['test_recall'].std(), 5)} std)\n {scores['test_f1'].mean()} mean f1 score ({round(scores['test_f1'].std(), 5)} std)\n"
-                    f"\n {scores['test_accuracy'].mean()} mean accuracy ({round(scores['test_accuracy'].std(), 5)} std)\n\n")
-                result_file.write(result)
-
-def bayes_search_hyperparam(x_train, y_train, x_test, y_test, over_sampled, bayes_search_objects):
-    if not over_sampled:
-        with open('bayes_search_no_smote.txt', 'w') as result_file:
-            for opt in bayes_search_objects:
-                opt.fit(x_train, y_train)
-                result_file.write(f'Bayes Search, no oversampling. Classificatore: {opt.estimator}\n')
-                result_file.write(f'{opt.score(x_test, y_test)}\n')
-                result_file.write(f'{opt.best_score_}\n')
-                result_file.write(f'{opt.best_estimator_}\n')
-                result_file.write(f'{opt.best_params_}\n')
-                result_file.write(f'{opt.cv_results_["params"][opt.best_index_]}\n')
-    else:
-        with open('bayes_search_with_smote.txt', 'w') as result_file:
-            for opt in bayes_search_objects:
-                opt.fit(x_train, y_train)
-                result_file.write(f'Bayes Search, dati oversampling SMOTE. Classificatore: {opt.estimator}\n')
-                result_file.write(f'{opt.score(x_test, y_test)}\n')
-                result_file.write(f'{opt.best_score_}\n')
-                result_file.write(f'{opt.best_estimator_}\n')
-                result_file.write(f'{opt.best_params_}\n')
-                result_file.write(f'{opt.cv_results_["params"][opt.best_index_]}\n')
-
-def tsne_and_visualize(x_data, perp, iters):
-    tsne = TSNE(n_components=2, perplexity=perp, learning_rate='auto', verbose=1, n_iter=iters, n_jobs=-1)
-    x_tsne = tsne.fit_transform(x_data)
-
-    plt.scatter(x_tsne[:, 0], x_tsne[:, 1])
-    plt.xlabel('t-SNE Dimension 1')
-    plt.ylabel('t-SNE Dimension 2')
-    plt.title(f'Plot T-SNE, perplexity {perp}, iterazioni {iters}')
-    plt.savefig(f'tsne no smote perp {perp} iters {iters}.png', bbox_inches='tight')
-    plt.show()
-
-def grid_search_hyperparam(classifiers, x_train, y_train, x_test, y_test, over_sampled, grids):
-    i = 0
-    if not over_sampled:
-        with open('grid_search_no_smote.txt', 'w') as result_file:
-            for classifier in classifiers.values():
-                grid = GridSearchCV(classifier, param_grid=grids[i], n_jobs=-1, verbose=True)
-                grid.fit(x_train, y_train)
-                result_file.write(f'Classificatore: {classifier.__class__.__name__}, migliori parametri: \n {grid.best_params_}'
-                                  f'\n Migliore punteggio: {grid.best_score_} \n')
-                result_file.write(
-                    f'Risultato su dati test: {grid.score(x_test, y_test)}\n\n')
-                i = i+1
-    else:
-        with open('grid_search_with_smote.txt', 'w') as result_file:
-            for classifier in classifiers.values():
-                grid = GridSearchCV(classifier, param_grid=grids[i], n_jobs=-1, verbose=True)
-                grid.fit(x_train, y_train)
-                result_file.write(
-                    f'Classificatore: {classifier.__class__.__name__}, migliori parametri: \n {grid.best_params_}'
-                    f'\n Migliore punteggio: {grid.best_score_} \n\n')
-                result_file.write(
-                    f'Risultato su dati test: {grid.score(x_test, y_test)}\n\n')
-                i = i + 1
-
-
-def  get_bayes_search_list(classifiers):
-    bayes_logreg_param_search = BayesSearchCV(
-        classifiers["LogisticRegression"],
-        {
-            'C': [1e-3, 1e-1, 1e1, 1e3, 1e5]
-        },
-        cv=CV_FOLDS,
-        scoring=SCORING,
-        refit='f1',
-        verbose=2
-    )
-    bayes_svc_param_search = BayesSearchCV(
-        classifiers["Support Vector Classifier"],
-        {
-            'C': [1e-3, 1e-1, 1e1, 1e3, 1e5],
-            'kernel': ['linear', 'rbf']
-        },
-        cv=CV_FOLDS,
-        scoring=SCORING,
-        refit='f1',
-        verbose=2
-    )
-
-    bayes_rf_param_search = BayesSearchCV(
-        classifiers["RandomForest"],
-        {
-            'n_estimators': [100, 150, 200],
-            'max_depth': [None, 2, 5, 8],
-        },
-        cv=CV_FOLDS,
-        scoring=SCORING,
-        refit='f1',
-        verbose=2
-    )
-
-    bayes_knn_param_search = BayesSearchCV(
-        classifiers["KNearest"],
-        {
-            'n_neighbors': [2, 5, 10, 15],
-        },
-        cv=CV_FOLDS,
-        scoring=SCORING,
-        refit='f1',
-        verbose=2
-    )
-
-    bayes_dec_tree_param_search = BayesSearchCV(
-        classifiers["DecisionTreeClassifier"],
-        {
-            'max_depth': [None, 2, 5, 7, 10],
-        },
-        cv=CV_FOLDS,
-        scoring=SCORING,
-        refit='f1',
-        verbose=2
-    )
-    bayes_list = [bayes_logreg_param_search, bayes_rf_param_search, bayes_svc_param_search,
-                        bayes_knn_param_search, bayes_dec_tree_param_search]
-    return bayes_list
-
-
 def main():
-    og_dataset = dataset_load_and_explore("creditcard.csv")
-    scaled_dataset = dataset_scale(og_dataset)
-    oversampled_dataset = dataset_scale(og_dataset, True)
+    og_dataset = data_utils.dataset_load("creditcard.csv", False)
+    scaled_dataset = data_utils.dataset_scale(og_dataset)
+    oversampled_dataset = data_utils.dataset_scale(og_dataset, True)
+    #data_utils.correlation_matrix(scaled_dataset, 'scaled data correlations.png')
+    #data_utils.correlation_matrix(oversampled_dataset, 'oversampled data correlations.png')
     x = scaled_dataset.drop('Class', axis=1)
     y = scaled_dataset['Class']
     x_oversampled = oversampled_dataset.drop('Class', axis=1)
     y_oversampled = oversampled_dataset['Class']
-    x_train_scaled, x_test_scaled, y_train_scaled, y_test_scaled = train_test_split(x, y, test_size=TEST_SIZE, random_state=42)
-    x_train = x_train_scaled.values
-    x_test = x_test_scaled.values
-    y_train = y_train_scaled.values
-    y_test = y_test_scaled.values
-    x_train_oversampled, x_test_oversampled, y_train_oversampled, y_test_oversampled  = train_test_split(x_oversampled, y_oversampled, test_size=TEST_SIZE, random_state=42)
+    x_train, x_test, y_train, y_test = data_utils.split_x_and_y(x, y)
+    x_train_oversampled, x_test_oversampled, y_train_oversampled, y_test_oversampled = data_utils.split_x_and_y(x_oversampled, y_oversampled)
 
     supervised_base_classifiers = {
         "LogisticRegression": LogisticRegression(random_state=42),
@@ -253,49 +58,108 @@ def main():
         "Support Vector Classifier": SVC(random_state=42),
         "DecisionTreeClassifier": DecisionTreeClassifier(random_state=42)
     }
-    bayes_search_obj = get_bayes_search_list(supervised_base_classifiers)
-
 
     logreg_grid = {'C': [1e-3, 1e-1, 1e1, 1e3, 1e5]}
-    svc_grid = {'C': [1e-3, 1e-1, 1e1, 1e3, 1e5], 'kernel': ['linear', 'rbf']}
-    rf_grid = {'n_estimators': [100,150,200], 'max_depth': [None,2,5,8],}
-    knn_grid = {'n_neighbors': [2,5,10,15]}
-    dec_tree_grid = {'max_depth': [None,2, 5, 7, 10]}
-    grid_search_obj = [logreg_grid, svc_grid, rf_grid, knn_grid, dec_tree_grid]
-    #supervised_base_cross_validate(supervised_base_classifiers, x_train, y_train, False)
-    #supervised_base_cross_validate(supervised_base_classifiers, x_train_oversampled, y_train_oversampled, True)
-    #TODO: visualizzare curve apprendimento e risultati tramite grafico
-    #TODO: refactor di sti due tuning, troppe ripetizioni di codice
-    #bayes_search_hyperparam(x_train, y_train, x_test, y_test, False, bayes_search_obj)
-    #bayes_search_hyperparam(x_train_oversampled, y_train_oversampled, x_test_oversampled, y_test_oversampled, True, bayes_search_obj)
+    rf_grid = {'n_estimators': [100, 150, 250], 'max_depth': [None, 5, 8],}
+    knn_grid = {'n_neighbors': [2, 5, 10, 15]}
+    svc_grid = {'C': [1e-3, 1e-1, 1e1, 1e3, 1e5]}
+    dec_tree_grid = {'max_depth': [None, 5, 10, 15]}
+    grid_search_obj = [logreg_grid, rf_grid, knn_grid, svc_grid, dec_tree_grid]
+
+    #supervised_base_cross_validate(supervised_base_classifiers, x, y, False)
+    #supervised_base_cross_validate(supervised_base_classifiers, x_oversampled, y_oversampled, True)
+
     #grid_search_hyperparam(supervised_base_classifiers, x_train, y_train, x_test, y_test, False, grid_search_obj)
     #grid_search_hyperparam(supervised_base_classifiers, x_train_oversampled, y_train_oversampled, x_test_oversampled, y_test_oversampled, True, grid_search_obj)
-    #bayesian_network_structure_learning()
-    #tsne_and_visualize(x_train_oversampled, 50, 3000)
-    #tsne_and_visualize(x_train_oversampled, 100, 5000)
-    #tsne_and_visualize(x_train_oversampled, 50, 10000)
-    #tsne_and_visualize(x_train, 50, 10000)
-    #tsne_and_visualize(x_train, 80, 10000)
 
-    # https://www.kaggle.com/code/sifodhara/credit-card-fraud-detection-using-isolation-forest per dei plot sui dati, da mettere qua per abbellire sto progetto
+    #tsne_and_visualize(scaled_dataset, 80, 5000, 30000, oversampled=False)
+    #tsne_and_visualize(oversampled_dataset, 80, 5000, 50000, oversampled=True)
+
+
     #Isolation forest per visualizzare anomalie
-    #isolation_forest(scaled_dataset)
+    isolation_forest(scaled_dataset)
     isolation_forest(oversampled_dataset, True)
-
 
     #testo le varie combinazioni di discretizzazione su modelli base, per capire il giusto numero di bins
     #data_discretization_test(scaled_dataset, supervised_base_classifiers)
     #results_df = pd.read_csv("discretization results.csv")
     #print(results_df.sort_values('f1', ascending=False))
-    #bayesian_network_structure_learning(scaled_dataset, 1000, 20, "kmeans")
+
     #print('inizio bayes')
+    #bayesian_network_structure_learning(scaled_dataset, 1000, 20, "kmeans")
     #which_model = 'bnet 100000 samples 20 bins kmeans strategy 6 features max likelihood.bif'
     #bayesian_model = get_bayesian_network_model(which_model)
     #generated_samples = bayesian_network_simulate_samples(bayesian_model, 10000) #accuracy 0.9544
     #bayesian_network_inference(bayesian_model, generated_samples)
     #samples = dataframe_get_sample(oversampled_dataset, 10000, True)
     #bayesian_network_inference(bayesian_model, samples)
-    #neural_net(oversampled_dataset)
+    #neural_net(oversampled_dataset, 'neural net')
+
+
+def supervised_base_cross_validate(classifiers, x, y, over_sampled):
+    results_df = pd.DataFrame()
+    if not over_sampled:
+        print(f"before SMOTE sampling, counter(y) = {Counter(y)}")
+    else:
+        print(f"After SMOTE, counter(y) = {Counter(y)}")
+    #normale cross validation stratificata (per dataset sbilanciati), con solo scaling di amount e time nel dataset
+    for key, classifier in classifiers.items():
+        kf = StratifiedKFold(n_splits=CV_FOLDS, shuffle=False)
+        scores = cross_validate(classifier, x, y, n_jobs=-1, cv=kf, scoring=SCORING, verbose=1)
+        row = {"Classifier": key}
+        for metric in SCORING:
+            row[f"{metric}_mean"] = np.mean(scores[f"test_{metric}"])
+            row[f"{metric}_std"] = np.std(scores[f"test_{metric}"])
+        results_df = pd.concat([results_df, pd.DataFrame([row])], ignore_index=True)
+    if not over_sampled:
+        results_df.to_csv('first cv no sampling.csv', index=False)
+    else:
+        results_df.to_csv('first cv with smote oversampling.csv', index=False)
+
+
+def tsne_and_visualize(dataframe, perp, iters, n_samples, oversampled=False):
+    if oversampled:
+        df2 = pd.concat([dataframe[dataframe.Class == 1].sample(n_samples // 5), dataframe[dataframe.Class == 0].sample(n_samples)], axis=0)
+    else:
+        df2 = pd.concat([dataframe[dataframe.Class == 1], dataframe[dataframe.Class == 0].sample(n_samples)],axis=0)
+    y = df2.iloc[:,-1]
+    tsne = TSNE(n_components=2, random_state=42, perplexity=perp, learning_rate='auto', verbose=1, n_iter=iters, n_jobs=-1)
+    x_transformed = tsne.fit_transform(df2)
+    color_map = {0: 'blue', 1: 'red'}
+    plt.figure()
+    for idx, cl in enumerate(np.unique(y)):
+        plt.scatter(x=x_transformed[y == cl, 0],
+                    y=x_transformed[y == cl, 1],
+                    c=color_map[idx],
+                    label=cl)
+    plt.xlabel('X in t-SNE')
+    plt.ylabel('Y in t-SNE')
+    plt.legend(loc='upper left')
+    plt.title('t-SNE visualization, samples from dataset')
+    plt.savefig(f"tsne {'original scaled data' if not oversampled else 'oversampled data'} perp {perp} iters {iters}.png")
+    plt.show()
+
+def grid_search_hyperparam(classifiers, x_train, y_train, x_test, y_test, over_sampled, grids):
+    i = 0
+    results = []
+    kf = StratifiedKFold(n_splits=CV_FOLDS, shuffle=False)
+    for key, classifier in classifiers.items():
+        grid = GridSearchCV(classifier, cv=kf, param_grid=grids[i], n_jobs=-1, verbose=True, refit='recall', scoring=SCORING)
+        grid.fit(x_train, y_train)
+        best_parameters = grid.best_params_
+        best_scores = {
+            "Best Accuracy": grid.cv_results_["mean_test_accuracy"][grid.best_index_],
+            "Best Precision": grid.cv_results_["mean_test_precision"][grid.best_index_],
+            "Best Recall": grid.cv_results_["mean_test_recall"][grid.best_index_],
+            "Best F1": grid.cv_results_["mean_test_f1"][grid.best_index_],
+        }
+        results.append({"Classifier": key, **best_parameters, **best_scores})
+        i = i+1
+    results_df = pd.DataFrame(results)
+    if over_sampled:
+        results_df.to_csv('grid search smote oversampling.csv', index=False)
+    else:
+        results_df.to_csv('grid search no sampling.csv', index=False)
 
 
 def dataframe_get_sample(dataframe:DataFrame, n_samples, to_discretize=False):
@@ -369,7 +233,7 @@ def bayesian_network_structure_learning(dataframe: pandas.DataFrame, n_samples, 
     bayesian_network: pgmpy.base.DAG = net_estimator.estimate()
     bayesian_network_model = BayesianNetwork(bayesian_network.edges())
     bayesian_network_model.fit(df, estimator=MaximumLikelihoodEstimator, n_jobs=-1)
-    #https://pgmpy.org/readwrite/bif.html
+    #https://pgmpy.org/readwrite/bif.html è un tipo di formato per le reti bayesiane
     writer = BIFWriter(bayesian_network_model)
     writer.write_bif(filename=f'bnet {n_samples} samples {discrete_bins} bins {discrete_strategy} strategy {len(df.columns)} features max likelihood.bif')
     #TODO: modificare un pò la visualizzazione della rete, troppo obvious cosi
@@ -459,34 +323,27 @@ def get_bayesian_network_model(model_path):
     model = reader.get_model()
     return model
 
-def neural_net(dataframe:DataFrame):
+def neural_net(dataframe:DataFrame, filename):
     inputs = dataframe.drop('Class', axis=1)
     target = dataframe['Class']
     x_train, x_test, y_train, y_test = train_test_split(inputs, target, test_size=0.2)
-    input_tensor = tf.convert_to_tensor(inputs)
     stop_early = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
-    normalizer = tf.keras.layers.Normalization(axis=-1)
-    normalizer.adapt(np.array(inputs))
+    model = neural_net_hypermodel.MyHypermodel(inputs)
+    tuner = keras_tuner.RandomSearch(
+        model,
+        objective='val_loss',
+        overwrite=True,
+        max_trials=5)
+    tuner.search(x_train, y_train, epochs = 100, validation_split = 0.2, callbacks= [stop_early])
+    hp = tuner.get_best_hyperparameters()[0]
+    hypermodel = tuner.hypermodel.build(hp)
+    hypermodel.summary()
+    history = hypermodel.fit(x_train, y_train, epochs=100, batch_size=32, validation_split = 0.2, callbacks= [stop_early])
+    hypermodel.save(f'{filename}.keras')
+    hypermodel.evaluate(x_test, y_test)
+    plot_neural_net(history, f'{filename} plot.png')
 
-    model = tf.keras.Sequential([
-        normalizer,
-        tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
-        tf.keras.layers.Dropout(0.3),
-        tf.keras.layers.Dense(64, activation='relu', kernel_regularizer=tf.keras.regularizers.l2(0.0001)),
-        tf.keras.layers.Dropout(0.3),
-        tf.keras.layers.Dense(1)
-    ])
-
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001),
-                  loss=tf.keras.losses.BinaryCrossentropy(from_logits=True),
-                  metrics=['accuracy', tf.keras.metrics.Precision(), tf.keras.metrics.Recall()])
-
-    history = model.fit(x_train, y_train, epochs=100, batch_size=32, validation_split = 0.2, callbacks = [stop_early])
-    model.save('neural net.keras')
-    model.evaluate(x_test, y_test)
-    plot_neural_net(history)
-
-def plot_neural_net(history):
+def plot_neural_net(history, file_name):
     fig, axs = plt.subplots(1, 2)
 
     # create accuracy subplot
@@ -506,6 +363,7 @@ def plot_neural_net(history):
 
     text = f"Learning rate 0.0001, 100 epochs."
     plt.figtext(0.5, 0.01, text, wrap=True, horizontalalignment='center', fontsize=12)
+    plt.savefig(file_name)
     plt.show()
 
 def isolation_forest(dataframe, is_oversampled_dataset = False):
@@ -513,21 +371,14 @@ def isolation_forest(dataframe, is_oversampled_dataset = False):
     contamination = dataframe["Class"].sum() / len(dataframe)
     x = dataframe.drop('Class', axis=1)
     y = dataframe['Class']
-    iso = IsolationForest(contamination=contamination, n_estimators=200,  random_state=42, n_jobs=-1, verbose=2)
+    iso = IsolationForest(contamination=contamination, n_estimators=200, random_state=42, n_jobs=-1, verbose=2)
     iso.fit(x)
-    y_pred = iso.score_samples(x)
-    fpr_correct, tpr_correct, _ = roc_curve(y, -y_pred)
-    plt.plot(fpr_correct, tpr_correct, 'black', lw=1)
-    plt.xlabel('False positive rate')
-    plt.ylabel('True positive rate')
-    plt.title("Isolation Forest: ROC curve")
-    plt.savefig(f"isolation forest roc curve {'smote' if is_oversampled_dataset else ''}.png")
-    plt.show()
 
     # Predict anomalies: 1 = inlier, -1 = outlier
     dataframe["outlier"] = iso.predict(x)
     y_pred = dataframe["outlier"].map({1: 0, -1: 1})
-    print(roc_auc_score(y,y_pred))
+    print(roc_auc_score(y, y_pred))
+    print(recall_score(y, y_pred))
     # Map the predictions: 1 -> 0 (normal) and -1 -> 1 (anomaly)
 
     dataframe["outlier_label"] = dataframe["outlier"].map({1: 0, -1: 1})

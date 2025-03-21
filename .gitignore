@@ -1,1 +1,5 @@
 /creditcard.csv
+/.venv/
+/untitled_project/
+/.idea
+__pycache__/
