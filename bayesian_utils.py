@@ -20,19 +20,18 @@ def bayesian_network_structure_learning(dataframe: pd.DataFrame, n_samples, disc
     #https://pgmpy.org/readwrite/bif.html è un tipo di formato per le reti bayesiane
     writer = BIFWriter(bayesian_network_model)
     writer.write_bif(filename=f'bnet {n_samples} samples {discrete_bins} bins {discrete_strategy} strategy {len(df.columns)} features max likelihood.bif')
-    #TODO: modificare un pò la visualizzazione della rete, troppo obvious cosi
     G = nx.MultiDiGraph(bayesian_network_model.edges())
     pos = nx.spring_layout(G, iterations=100, k=2,
                            threshold=5, pos=nx.spiral_layout(G))
-    nx.draw_networkx_nodes(G, pos, node_size=150, node_color="#ff574c")
+    nx.draw_networkx_nodes(G, pos, node_size=100, node_color="#FFFF00")
     nx.draw_networkx_labels(
         G,
         pos,
         font_size=10,
-        font_weight="bold",
+        font_weight="normal",
         clip_on=True,
         horizontalalignment="center",
-        verticalalignment="bottom",
+        verticalalignment="baseline",
     )
     nx.draw_networkx_edges(
         G,
@@ -40,15 +39,11 @@ def bayesian_network_structure_learning(dataframe: pd.DataFrame, n_samples, disc
         arrows=True,
         arrowsize=7,
         arrowstyle="->",
-        edge_color="purple",
-        connectionstyle="angle3,angleA=90,angleB=0",
-        min_source_margin=1,
-        min_target_margin=1,
-        edge_vmin=2,
-        edge_vmax=2,
+        edge_color="black",
+        connectionstyle="arc3,rad=0.",
     )
 
-    plt.title("BAYESIAN NETWORK GRAPH")
+    plt.title(f"Bayesian network")
     plt.savefig(f"bayesian network {n_samples} samples {discrete_bins} bins {discrete_strategy} strategy {len(df.columns)} features.png")
     plt.show()
     plt.clf()

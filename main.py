@@ -79,23 +79,27 @@ def main():
 
 
     #Isolation forest per visualizzare anomalie
-    isolation_forest(scaled_dataset)
-    isolation_forest(oversampled_dataset, True)
+    #isolation_forest(scaled_dataset)
+    #isolation_forest(oversampled_dataset, True)
 
     #testo le varie combinazioni di discretizzazione su modelli base, per capire il giusto numero di bins
-    data_discretization_test(scaled_dataset, supervised_base_classifiers)
-    results_df = pd.read_csv("discretization results.csv")
-    print(results_df.sort_values('recall', ascending=False))
+    #data_discretization_test(scaled_dataset, supervised_base_classifiers)
+    #results_df = pd.read_csv("discretization results.csv")
+    #print(results_df.sort_values('recall', ascending=False))
 
     print('inizio bayes')
+    #in realtà adesso il numero di feature usate per apprendere la rete è fisso a 5 + class, di piu non si riesce
+    bayesian_network_structure_learning(scaled_dataset, 10000, 20, "kmeans")
     bayesian_network_structure_learning(scaled_dataset, 1000, 20, "kmeans")
+    bayesian_network_structure_learning(scaled_dataset, 100000, 20, "kmeans")
+    bayesian_network_structure_learning(scaled_dataset, 100000, 20, "quantile")
     which_model = 'bnet 100000 samples 20 bins kmeans strategy 6 features max likelihood.bif'
-    bayesian_model = get_bayesian_network_model(which_model)
-    generated_samples = bayesian_network_simulate_samples(bayesian_model, 10000) #accuracy 0.9544
-    bayesian_network_inference(bayesian_model, generated_samples)
-    samples = data_utils.dataframe_get_sample(oversampled_dataset, 10000, True)
-    bayesian_network_inference(bayesian_model, samples)
-    neural_net(oversampled_dataset, 'neural net')
+    #bayesian_model = get_bayesian_network_model(which_model)
+    #generated_samples = bayesian_network_simulate_samples(bayesian_model, 10000) #accuracy 0.9544
+    #bayesian_network_inference(bayesian_model, generated_samples)
+    #samples = data_utils.dataframe_get_sample(oversampled_dataset, 10000, True)
+    #bayesian_network_inference(bayesian_model, samples)
+    #neural_net(oversampled_dataset, 'neural net')
 
 
 def supervised_base_cross_validate(classifiers, x, y, over_sampled):
