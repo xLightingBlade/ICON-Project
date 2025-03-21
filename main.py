@@ -31,6 +31,8 @@ from skopt import BayesSearchCV
 
 import data_utils
 import neural_net_hypermodel
+from bayesian_utils import bayesian_network_structure_learning, get_bayesian_network_model, \
+    bayesian_network_simulate_samples, bayesian_network_inference
 
 LABEL_GENUINE = 0
 LABEL_FRAUD = 1
@@ -81,19 +83,19 @@ def main():
     isolation_forest(oversampled_dataset, True)
 
     #testo le varie combinazioni di discretizzazione su modelli base, per capire il giusto numero di bins
-    #data_discretization_test(scaled_dataset, supervised_base_classifiers)
-    #results_df = pd.read_csv("discretization results.csv")
-    #print(results_df.sort_values('f1', ascending=False))
+    data_discretization_test(scaled_dataset, supervised_base_classifiers)
+    results_df = pd.read_csv("discretization results.csv")
+    print(results_df.sort_values('recall', ascending=False))
 
-    #print('inizio bayes')
-    #bayesian_network_structure_learning(scaled_dataset, 1000, 20, "kmeans")
-    #which_model = 'bnet 100000 samples 20 bins kmeans strategy 6 features max likelihood.bif'
-    #bayesian_model = get_bayesian_network_model(which_model)
-    #generated_samples = bayesian_network_simulate_samples(bayesian_model, 10000) #accuracy 0.9544
-    #bayesian_network_inference(bayesian_model, generated_samples)
-    #samples = dataframe_get_sample(oversampled_dataset, 10000, True)
-    #bayesian_network_inference(bayesian_model, samples)
-    #neural_net(oversampled_dataset, 'neural net')
+    print('inizio bayes')
+    bayesian_network_structure_learning(scaled_dataset, 1000, 20, "kmeans")
+    which_model = 'bnet 100000 samples 20 bins kmeans strategy 6 features max likelihood.bif'
+    bayesian_model = get_bayesian_network_model(which_model)
+    generated_samples = bayesian_network_simulate_samples(bayesian_model, 10000) #accuracy 0.9544
+    bayesian_network_inference(bayesian_model, generated_samples)
+    samples = data_utils.dataframe_get_sample(oversampled_dataset, 10000, True)
+    bayesian_network_inference(bayesian_model, samples)
+    neural_net(oversampled_dataset, 'neural net')
 
 
 def supervised_base_cross_validate(classifiers, x, y, over_sampled):
@@ -115,7 +117,6 @@ def supervised_base_cross_validate(classifiers, x, y, over_sampled):
         results_df.to_csv('first cv no sampling.csv', index=False)
     else:
         results_df.to_csv('first cv with smote oversampling.csv', index=False)
-
 
 def tsne_and_visualize(dataframe, perp, iters, n_samples, oversampled=False):
     if oversampled:
@@ -161,17 +162,6 @@ def grid_search_hyperparam(classifiers, x_train, y_train, x_test, y_test, over_s
     else:
         results_df.to_csv('grid search no sampling.csv', index=False)
 
-
-def dataframe_get_sample(dataframe:DataFrame, n_samples, to_discretize=False):
-    dataframe = dataframe.sample(frac=1).reset_index(drop=True)
-    fraud_df = dataframe.loc[dataframe['Class'] == 1].sample(n_samples // 2)
-    real_df = dataframe.loc[dataframe['Class'] == 0].sample(n_samples // 2)
-    samples = pd.concat([fraud_df, real_df], ignore_index=True)
-    if to_discretize:
-        discrete_sample = discretize_df(samples, 20, 'kmeans')
-        return discrete_sample
-    return samples
-
 def data_discretization_test(data, classifiers):
     x = data.drop('Class', axis=1)
     y = data['Class']
@@ -213,115 +203,6 @@ def data_discretization_test(data, classifiers):
     print("\nResults:")
     print(results_df)
     results_df.to_csv("discretization results.csv", index=False)
-
-def discretize_df(dataframe:DataFrame, bins, strategy):
-    print('prima')
-    print(dataframe.head())
-    kbins = KBinsDiscretizer(n_bins=bins, encode="ordinal", strategy=strategy)
-    cols = [col for col in dataframe.columns if col != 'Class']
-    x_discrete = kbins.fit_transform(dataframe[cols])
-    discrete_df = pd.DataFrame(x_discrete, columns=cols, index=dataframe.index)
-    discrete_df['Class'] = dataframe['Class']
-    discrete_df = discrete_df[dataframe.columns]
-    print(discrete_df.head())
-    return discrete_df
-
-#tipizzo il parametro dataframe per aiutarmi con l`IDE
-def bayesian_network_structure_learning(dataframe: pandas.DataFrame, n_samples, discrete_bins, discrete_strategy):
-    df = dataframe_choose_cols_and_sample(dataframe, n_samples, discrete_bins, discrete_strategy)
-    net_estimator = HillClimbSearch(df)
-    bayesian_network: pgmpy.base.DAG = net_estimator.estimate()
-    bayesian_network_model = BayesianNetwork(bayesian_network.edges())
-    bayesian_network_model.fit(df, estimator=MaximumLikelihoodEstimator, n_jobs=-1)
-    #https://pgmpy.org/readwrite/bif.html è un tipo di formato per le reti bayesiane
-    writer = BIFWriter(bayesian_network_model)
-    writer.write_bif(filename=f'bnet {n_samples} samples {discrete_bins} bins {discrete_strategy} strategy {len(df.columns)} features max likelihood.bif')
-    #TODO: modificare un pò la visualizzazione della rete, troppo obvious cosi
-    G = nx.MultiDiGraph(bayesian_network_model.edges())
-    pos = nx.spring_layout(G, iterations=100, k=2,
-                           threshold=5, pos=nx.spiral_layout(G))
-    nx.draw_networkx_nodes(G, pos, node_size=150, node_color="#ff574c")
-    nx.draw_networkx_labels(
-        G,
-        pos,
-        font_size=10,
-        font_weight="bold",
-        clip_on=True,
-        horizontalalignment="center",
-        verticalalignment="bottom",
-    )
-    nx.draw_networkx_edges(
-        G,
-        pos,
-        arrows=True,
-        arrowsize=7,
-        arrowstyle="->",
-        edge_color="purple",
-        connectionstyle="angle3,angleA=90,angleB=0",
-        min_source_margin=1,
-        min_target_margin=1,
-        edge_vmin=2,
-        edge_vmax=2,
-    )
-
-    plt.title("BAYESIAN NETWORK GRAPH")
-    plt.savefig(f"bayesian network {n_samples} samples {discrete_bins} bins {discrete_strategy} strategy {len(df.columns)} features.png")
-    plt.show()
-    plt.clf()
-
-def dataframe_choose_cols_and_sample(dataframe:DataFrame, n_samples, bins, strategy):
-    #prima uno shuffle del dataframe
-    dataframe = dataframe.sample(frac=1).reset_index(drop=True)
-    x = dataframe[['Time', 'V1', 'V2', 'V3', 'Amount']]
-    y = dataframe['Class']
-    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=TEST_SIZE, random_state=42)
-    sm = SMOTE(random_state=42, sampling_strategy=.5)
-    x_train_oversampled, y_train_oversampled = sm.fit_resample(x_train, y_train)
-    x_train = pd.DataFrame(x_train_oversampled, columns=x_train.columns)
-    y_train = pd.Series(y_train_oversampled)
-    x_train['Class'] = y_train
-    fraud_df = x_train.loc[x_train['Class'] == 1 ].sample(n_samples // 2)
-    real_df = x_train.loc[x_train['Class'] == 0].sample(n_samples // 2)
-    df_sample = pd.concat([fraud_df, real_df], ignore_index=True)
-    discrete_sample = discretize_df(df_sample, bins, strategy)
-    print("discrete sample df")
-    print(discrete_sample.head())
-    return discrete_sample
-
-def bayesian_network_inference(model, data_to_predict):
-    predicted_classes = []
-    inference = VariableElimination(model)
-    amount = data_to_predict['Amount'].to_numpy()
-    time = data_to_predict['Time'].to_numpy()
-    v1 = data_to_predict['V1'].to_numpy()
-    v2 = data_to_predict['V2'].to_numpy()
-    v3 = data_to_predict['V3'].to_numpy()
-    classes = data_to_predict['Class'].to_numpy()
-    real_classes = [int(x) for x in classes]
-    for i in range(len(data_to_predict)):
-        data = {
-            "Amount" : amount[i],
-            "V1": v1[i],
-            "V2": v2[i],
-            "V3": v3[i],
-            "Time": time[i]
-        }
-        res = inference.query(variables = ['Class'], evidence = data)
-        class_res = inference.map_query(variables = ['Class'], evidence = data)
-        #print(res)
-        #print(class_res)
-        predicted_classes.append(int(class_res['Class']))
-    print(accuracy_score(real_classes, predicted_classes))
-
-def bayesian_network_simulate_samples(model:BayesianNetwork, n_samples):
-    samples = model.simulate(n_samples=n_samples)
-    print(samples)
-    return samples
-
-def get_bayesian_network_model(model_path):
-    reader = BIFReader(model_path)
-    model = reader.get_model()
-    return model
 
 def neural_net(dataframe:DataFrame, filename):
     inputs = dataframe.drop('Class', axis=1)

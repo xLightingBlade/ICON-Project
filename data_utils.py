@@ -3,7 +3,7 @@ import pandas as pd
 from pandas import DataFrame
 import matplotlib.pyplot as plt
 from imblearn.over_sampling import SMOTE
-from sklearn.preprocessing import RobustScaler
+from sklearn.preprocessing import RobustScaler, KBinsDiscretizer
 import seaborn as sns
 
 TEST_SIZE = .2
@@ -39,6 +39,37 @@ def get_pie_chart_of_classes(dataframe:DataFrame):
     plt.title("Class distribution, original dataset")
     plt.savefig('dataset pie chart.png')
     plt.show()
+
+def dataframe_choose_cols_and_sample(dataframe:DataFrame, n_samples, bins, strategy):
+    #prima uno shuffle del dataframe
+    dataframe = dataframe.sample(frac=1).reset_index(drop=True)
+    x = dataframe[['Time', 'V1', 'V2', 'V3', 'Amount']]
+    y = dataframe['Class']
+    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=TEST_SIZE, random_state=42)
+    sm = SMOTE(random_state=42, sampling_strategy=.5)
+    x_train_oversampled, y_train_oversampled = sm.fit_resample(x_train, y_train)
+    x_train = pd.DataFrame(x_train_oversampled, columns=x_train.columns)
+    y_train = pd.Series(y_train_oversampled)
+    x_train['Class'] = y_train
+    fraud_df = x_train.loc[x_train['Class'] == 1 ].sample(n_samples // 2)
+    real_df = x_train.loc[x_train['Class'] == 0].sample(n_samples // 2)
+    df_sample = pd.concat([fraud_df, real_df], ignore_index=True)
+    discrete_sample = discretize_df(df_sample, bins, strategy)
+    print("discrete sample df")
+    print(discrete_sample.head())
+    return discrete_sample
+
+def discretize_df(dataframe:DataFrame, bins, strategy):
+    print('prima')
+    print(dataframe.head())
+    kbins = KBinsDiscretizer(n_bins=bins, encode="ordinal", strategy=strategy)
+    cols = [col for col in dataframe.columns if col != 'Class']
+    x_discrete = kbins.fit_transform(dataframe[cols])
+    discrete_df = pd.DataFrame(x_discrete, columns=cols, index=dataframe.index)
+    discrete_df['Class'] = dataframe['Class']
+    discrete_df = discrete_df[dataframe.columns]
+    print(discrete_df.head())
+    return discrete_df
 
 def dataset_oversample(data:DataFrame):
     oversampler = SMOTE(sampling_strategy=0.5, random_state=42)
@@ -83,3 +114,13 @@ def correlation_matrix(dataframe:DataFrame, filename):
     plt.title(f"Correlation Matrix {filename.split('data')[0]}")
     plt.savefig(filename)
     plt.show()
+
+def dataframe_get_sample(dataframe:DataFrame, n_samples, to_discretize=False):
+    dataframe = dataframe.sample(frac=1).reset_index(drop=True)
+    fraud_df = dataframe.loc[dataframe['Class'] == 1].sample(n_samples // 2)
+    real_df = dataframe.loc[dataframe['Class'] == 0].sample(n_samples // 2)
+    samples = pd.concat([fraud_df, real_df], ignore_index=True)
+    if to_discretize:
+        discrete_sample = discretize_df(samples, 20, 'kmeans')
+        return discrete_sample
+    return samples

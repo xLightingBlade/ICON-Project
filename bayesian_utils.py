@@ -1,0 +1,90 @@
+import networkx as nx
+import pgmpy
+from matplotlib import pyplot as plt
+from pgmpy.estimators import HillClimbSearch, MaximumLikelihoodEstimator
+from pgmpy.inference import VariableElimination
+from pgmpy.models import BayesianNetwork
+from pgmpy.readwrite import BIFReader, BIFWriter
+from sklearn.metrics import accuracy_score
+import pandas as pd
+
+from data_utils import dataframe_choose_cols_and_sample
+
+
+def bayesian_network_structure_learning(dataframe: pd.DataFrame, n_samples, discrete_bins, discrete_strategy):
+    df = dataframe_choose_cols_and_sample(dataframe, n_samples, discrete_bins, discrete_strategy)
+    net_estimator = HillClimbSearch(df)
+    bayesian_network: pgmpy.base.DAG = net_estimator.estimate()
+    bayesian_network_model = BayesianNetwork(bayesian_network.edges())
+    bayesian_network_model.fit(df, estimator=MaximumLikelihoodEstimator, n_jobs=-1)
+    #https://pgmpy.org/readwrite/bif.html è un tipo di formato per le reti bayesiane
+    writer = BIFWriter(bayesian_network_model)
+    writer.write_bif(filename=f'bnet {n_samples} samples {discrete_bins} bins {discrete_strategy} strategy {len(df.columns)} features max likelihood.bif')
+    #TODO: modificare un pò la visualizzazione della rete, troppo obvious cosi
+    G = nx.MultiDiGraph(bayesian_network_model.edges())
+    pos = nx.spring_layout(G, iterations=100, k=2,
+                           threshold=5, pos=nx.spiral_layout(G))
+    nx.draw_networkx_nodes(G, pos, node_size=150, node_color="#ff574c")
+    nx.draw_networkx_labels(
+        G,
+        pos,
+        font_size=10,
+        font_weight="bold",
+        clip_on=True,
+        horizontalalignment="center",
+        verticalalignment="bottom",
+    )
+    nx.draw_networkx_edges(
+        G,
+        pos,
+        arrows=True,
+        arrowsize=7,
+        arrowstyle="->",
+        edge_color="purple",
+        connectionstyle="angle3,angleA=90,angleB=0",
+        min_source_margin=1,
+        min_target_margin=1,
+        edge_vmin=2,
+        edge_vmax=2,
+    )
+
+    plt.title("BAYESIAN NETWORK GRAPH")
+    plt.savefig(f"bayesian network {n_samples} samples {discrete_bins} bins {discrete_strategy} strategy {len(df.columns)} features.png")
+    plt.show()
+    plt.clf()
+
+
+def bayesian_network_inference(model, data_to_predict):
+    predicted_classes = []
+    inference = VariableElimination(model)
+    amount = data_to_predict['Amount'].to_numpy()
+    time = data_to_predict['Time'].to_numpy()
+    v1 = data_to_predict['V1'].to_numpy()
+    v2 = data_to_predict['V2'].to_numpy()
+    v3 = data_to_predict['V3'].to_numpy()
+    classes = data_to_predict['Class'].to_numpy()
+    real_classes = [int(x) for x in classes]
+    for i in range(len(data_to_predict)):
+        data = {
+            "Amount" : amount[i],
+            "V1": v1[i],
+            "V2": v2[i],
+            "V3": v3[i],
+            "Time": time[i]
+        }
+        res = inference.query(variables = ['Class'], evidence = data)
+        class_res = inference.map_query(variables = ['Class'], evidence = data)
+        #print(res)
+        #print(class_res)
+        predicted_classes.append(int(class_res['Class']))
+    print(accuracy_score(real_classes, predicted_classes))
+
+def bayesian_network_simulate_samples(model:BayesianNetwork, n_samples):
+    samples = model.simulate(n_samples=n_samples)
+    print(samples)
+    return samples
+
+def get_bayesian_network_model(model_path):
+    reader = BIFReader(model_path)
+    model = reader.get_model()
+    return model
