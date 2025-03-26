@@ -5,6 +5,9 @@ import matplotlib.pyplot as plt
 from imblearn.over_sampling import SMOTE
 from sklearn.preprocessing import RobustScaler, KBinsDiscretizer
 import seaborn as sns
+from pandas.plotting import table
+import numpy as np
+import six
 
 TEST_SIZE = .2
 
@@ -18,7 +21,7 @@ def dataset_load(path, explore=False):
             print(f'Column : {column} \n Variance: {og_dataset[column].var()}\n')
         print(og_dataset.duplicated().sum())
         og_dataset.drop_duplicates()
-        get_pie_chart_of_classes(og_dataset)
+        get_pie_chart_of_classes(og_dataset, "dataset pie chart.png")
 
     return og_dataset
 
@@ -31,16 +34,19 @@ def split_x_and_y(x, y):
     y_test = y_test.values
     return x_train, x_test, y_train, y_test
 
-def get_pie_chart_of_classes(dataframe:DataFrame):
+def get_pie_chart_of_classes(dataframe:DataFrame, filename):
     class_counts = dataframe['Class'].value_counts()
     labels = ['Real', 'Fraud']
     plt.figure(figsize=(6, 6))
     class_counts.plot.pie(autopct='%1.2f%%', startangle=90, cmap='coolwarm', labels = labels)
     plt.title("Class distribution, original dataset")
-    plt.savefig('dataset pie chart.png')
+    plt.savefig(filename)
     plt.show()
 
 def dataframe_choose_cols_and_sample(dataframe:DataFrame, n_samples, bins, strategy):
+    df_sample = dataframe_get_sample(dataframe, n_samples, bins, strategy)
+    return df_sample
+    """
     #prima uno shuffle del dataframe
     dataframe = dataframe.sample(frac=1).reset_index(drop=True)
     x = dataframe[['Time', 'V1', 'V2', 'V3', 'Amount']]
@@ -58,6 +64,8 @@ def dataframe_choose_cols_and_sample(dataframe:DataFrame, n_samples, bins, strat
     print("discrete sample df")
     print(discrete_sample.head())
     return discrete_sample
+    """
+
 
 def discretize_df(dataframe:DataFrame, bins, strategy):
     print('prima')
@@ -72,7 +80,7 @@ def discretize_df(dataframe:DataFrame, bins, strategy):
     return discrete_df
 
 def dataset_oversample(data:DataFrame):
-    oversampler = SMOTE(sampling_strategy=0.5, random_state=42)
+    oversampler = SMOTE(sampling_strategy='auto', random_state=42)
     x = data.drop('Class', axis=1)
     y = data['Class']
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=TEST_SIZE, random_state=42)
@@ -115,8 +123,84 @@ def correlation_matrix(dataframe:DataFrame, filename):
     plt.savefig(filename)
     plt.show()
 
-def dataframe_get_sample(dataframe:DataFrame, n_samples, to_discretize=False):
-    dataframe = dataframe.sample(frac=1).reset_index(drop=True)
+def dataframe_get_sample(dataframe:DataFrame, n_samples, bins=1, strategy= '', to_discretize=True, columns = ['Amount', 'Time', 'V1', 'V2', 'V3']):
+    if to_discretize:
+        dataframe = discretize_df(dataframe, bins, strategy)
+
+    def stratified_sample(df, n, class_col='class', bin_cols=columns):
+        """
+        Sample n rows from df such that:
+          1. n/2 rows have class==0 and n/2 have class==1.
+          2. For each discretized column in bin_cols, at least one row
+             per unique bin value is selected (if available) within each class.
+
+        Parameters:
+          df          : DataFrame to sample from.
+          n           : Total number of samples (must be even).
+          class_col   : Name of the column with class labels.
+          bin_cols    : List of columns that have been discretized into bins.
+          random_state: Seed for reproducibility.
+
+        Returns:
+          A DataFrame with n rows meeting the criteria.
+        """
+        if n % 2 != 0:
+            raise ValueError("n must be even to split equally between classes.")
+
+        half_n = n // 2
+        sampled_list = []
+        print("prima dei ci sono, eccomi ", df)
+        print("ci sono 1")
+
+        # Process each class separately
+        for cls in [0, 1]:
+            print("ci sono 2")
+            cls_df = df[df[class_col] == cls].copy()
+            # DataFrame to hold mandatory rows for each bin in each specified column
+            mandatory = pd.DataFrame()
+            print("ci sono 3")
+            # For each discretized column, select one row per unique bin value
+            for col in bin_cols:
+                unique_bins = cls_df[col].unique()
+                print("ci sono 4")
+                for bin_val in unique_bins:
+                    # Candidate rows that fall into the bin
+                    candidates = cls_df[cls_df[col] == bin_val]
+                    print("ci sono 5")
+                    if not candidates.empty:
+                        mandatory = pd.concat([mandatory, candidates.sample(n=1)])
+                        print("ci sono 5b")
+
+            # Remove any duplicate rows (in case a row was selected for more than one column)
+            mandatory = mandatory.drop_duplicates()
+            print("ci sono 6")
+            # Count how many rows we already have
+            m = len(mandatory)
+            print("ci sono 7")
+            # If mandatory rows exceed half_n, randomly select half_n among them
+            if m > half_n:
+                print("ci sono 8a")
+                cls_sample = mandatory.sample(n=half_n)
+            else:
+                # Otherwise, sample additional rows (avoiding duplicates) to reach half_n
+                remaining = half_n - m
+                remaining_df = cls_df.drop(mandatory.index, errors='ignore')
+                print("ci sono 8b")
+                additional = remaining_df.sample(n=remaining)
+                cls_sample = pd.concat([mandatory, additional])
+            print("ci sono 9")
+            sampled_list.append(cls_sample)
+
+        # Combine class samples and shuffle the final result
+        print("sto finendo")
+        final_sample = pd.concat(sampled_list).sample(frac=1).reset_index(drop=True)
+        return final_sample
+    print("inizio stratified sample")
+    sampled_df = stratified_sample(dataframe, n=n_samples, class_col='Class', bin_cols=columns)
+    print("samples" , sampled_df)
+    return sampled_df[['Amount', 'Time', 'V1', 'V2', 'V3', 'Class']]
+
+    """
     fraud_df = dataframe.loc[dataframe['Class'] == 1].sample(n_samples // 2)
     real_df = dataframe.loc[dataframe['Class'] == 0].sample(n_samples // 2)
     samples = pd.concat([fraud_df, real_df], ignore_index=True)
@@ -124,3 +208,35 @@ def dataframe_get_sample(dataframe:DataFrame, n_samples, to_discretize=False):
         discrete_sample = discretize_df(samples, 20, 'kmeans')
         return discrete_sample
     return samples
+    """
+
+def load_visualize_and_save_dataframe(dataframe_path:str):
+    df = pd.read_csv(dataframe_path)
+    df = df.round(5)
+    ax, fig = render_mpl_table(df)
+    savepath = dataframe_path.split('.')[0]
+    fig.savefig(f"{savepath}.png")
+
+#fonte: https://stackoverflow.com/questions/26678467/export-a-pandas-dataframe-as-a-table-image
+def render_mpl_table(data, col_width=3.0, row_height=0.625, font_size=14,
+                     header_color='#40466e', row_colors=['#f1f1f2', 'w'], edge_color='w',
+                     bbox=[0, 0, 1, 1], header_columns=0,
+                     ax=None, **kwargs):
+    if ax is None:
+        size = (np.array(data.shape[::-1]) + np.array([0, 1])) * np.array([col_width, row_height])
+        fig, ax = plt.subplots(figsize=size)
+        ax.axis('off')
+
+    mpl_table = ax.table(cellText=data.values, bbox=bbox, colLabels=data.columns, **kwargs)
+
+    mpl_table.auto_set_font_size(False)
+    mpl_table.set_fontsize(font_size)
+
+    for k, cell in  six.iteritems(mpl_table._cells):
+        cell.set_edgecolor(edge_color)
+        if k[0] == 0 or k[1] < header_columns:
+            cell.set_text_props(weight='bold', color='w')
+            cell.set_facecolor(header_color)
+        else:
+            cell.set_facecolor(row_colors[k[0]%len(row_colors) ])
+    return ax, fig

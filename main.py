@@ -1,33 +1,23 @@
-from collections import Counter
-
 import keras_tuner
 import matplotlib.lines as mlines
 import matplotlib.pyplot as plt
-import networkx as nx
 import numpy as np
-import pandas
 import pandas as pd
-import pgmpy.base
-import seaborn as sns
 import tensorflow as tf
-from imblearn.over_sampling import SMOTE
+from collections import Counter
 from pandas import DataFrame
-from pgmpy.estimators import MaximumLikelihoodEstimator, HillClimbSearch
-from pgmpy.inference import VariableElimination
-from pgmpy.models import BayesianNetwork
-from pgmpy.readwrite import BIFWriter, BIFReader
 from sklearn.decomposition import PCA
 from sklearn.ensemble import RandomForestClassifier, IsolationForest
 from sklearn.linear_model import LogisticRegression
 from sklearn.manifold import TSNE
-from sklearn.metrics import (precision_score, recall_score, f1_score, accuracy_score, roc_curve, roc_auc_score)
+from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score
 from sklearn.model_selection import cross_validate, StratifiedKFold
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.preprocessing import RobustScaler, KBinsDiscretizer
+from sklearn.preprocessing import KBinsDiscretizer
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
-from skopt import BayesSearchCV
+
 
 import data_utils
 import neural_net_hypermodel
@@ -44,8 +34,10 @@ def main():
     og_dataset = data_utils.dataset_load("creditcard.csv", False)
     scaled_dataset = data_utils.dataset_scale(og_dataset)
     oversampled_dataset = data_utils.dataset_scale(og_dataset, True)
-    #data_utils.correlation_matrix(scaled_dataset, 'scaled data correlations.png')
-    #data_utils.correlation_matrix(oversampled_dataset, 'oversampled data correlations.png')
+    data_utils.get_pie_chart_of_classes(oversampled_dataset, 'oversampled data pie chart.png')
+
+    data_utils.correlation_matrix(scaled_dataset, 'scaled data correlations.png')
+    data_utils.correlation_matrix(oversampled_dataset, 'oversampled data correlations.png')
     x = scaled_dataset.drop('Class', axis=1)
     y = scaled_dataset['Class']
     x_oversampled = oversampled_dataset.drop('Class', axis=1)
@@ -61,43 +53,43 @@ def main():
         "DecisionTreeClassifier": DecisionTreeClassifier(random_state=42)
     }
 
-    logreg_grid = {'C': [1e-3, 1e-1, 1e1, 1e3, 1e5]}
-    rf_grid = {'n_estimators': [100, 150, 250], 'max_depth': [None, 5, 8],}
+    logreg_grid = {'C': [1e-1, 1e1, 1e3, 1e5]}
+    rf_grid = {'n_estimators': [100, 150, 250], 'max_depth': [None, 5, 10]}
     knn_grid = {'n_neighbors': [2, 5, 10, 15]}
-    svc_grid = {'C': [1e-3, 1e-1, 1e1, 1e3, 1e5]}
-    dec_tree_grid = {'max_depth': [None, 5, 10, 15]}
+    svc_grid = {'C': [1e-1, 1e1, 1e3, 1e5]}
+    dec_tree_grid = {'max_depth': [None, 5, 10]}
     grid_search_obj = [logreg_grid, rf_grid, knn_grid, svc_grid, dec_tree_grid]
 
-    #supervised_base_cross_validate(supervised_base_classifiers, x, y, False)
-    #supervised_base_cross_validate(supervised_base_classifiers, x_oversampled, y_oversampled, True)
+    supervised_base_cross_validate(supervised_base_classifiers, x, y, False)
+    supervised_base_cross_validate(supervised_base_classifiers, x_oversampled, y_oversampled, True)
 
-    #grid_search_hyperparam(supervised_base_classifiers, x_train, y_train, x_test, y_test, False, grid_search_obj)
-    #grid_search_hyperparam(supervised_base_classifiers, x_train_oversampled, y_train_oversampled, x_test_oversampled, y_test_oversampled, True, grid_search_obj)
+    grid_search_hyperparam(supervised_base_classifiers, x_train, y_train, x, y, False, grid_search_obj)
+    grid_search_hyperparam(supervised_base_classifiers, x_train_oversampled, y_train_oversampled, x_oversampled, y_oversampled, True, grid_search_obj)
 
-    #tsne_and_visualize(scaled_dataset, 80, 5000, 30000, oversampled=False)
-    #tsne_and_visualize(oversampled_dataset, 80, 5000, 50000, oversampled=True)
+    tsne_and_visualize(scaled_dataset, 80, 5000, 30000, oversampled=False)
+    tsne_and_visualize(oversampled_dataset, 80, 5000, 50000, oversampled=True)
 
 
     #Isolation forest per visualizzare anomalie
-    #isolation_forest(scaled_dataset)
-    #isolation_forest(oversampled_dataset, True)
+    isolation_forest(scaled_dataset)
+    isolation_forest(oversampled_dataset, True)
 
     #testo le varie combinazioni di discretizzazione su modelli base, per capire il giusto numero di bins
+    #si lascia commentato poichè non più utile
     #data_discretization_test(scaled_dataset, supervised_base_classifiers)
     #results_df = pd.read_csv("discretization results.csv")
     #print(results_df.sort_values('recall', ascending=False))
 
-    print('inizio bayes')
-    #in realtà adesso il numero di feature usate per apprendere la rete è fisso a 5 + class, di piu non si riesce
-    bayesian_network_structure_learning(scaled_dataset, 10000, 20, "kmeans")
-    bayesian_network_structure_learning(scaled_dataset, 1000, 20, "kmeans")
-    bayesian_network_structure_learning(scaled_dataset, 100000, 20, "kmeans")
-    bayesian_network_structure_learning(scaled_dataset, 100000, 20, "quantile")
+    #print('inizio bayes')
+    #in realtà adesso il numero di feature usate per apprendere la rete è fisso a 5 + class, di più non si riesce
+    #bayesian_network_structure_learning(oversampled_dataset, 100000, 20, "kmeans")
     which_model = 'bnet 100000 samples 20 bins kmeans strategy 6 features max likelihood.bif'
-    #bayesian_model = get_bayesian_network_model(which_model)
-    #generated_samples = bayesian_network_simulate_samples(bayesian_model, 10000) #accuracy 0.9544
-    #bayesian_network_inference(bayesian_model, generated_samples)
-    #samples = data_utils.dataframe_get_sample(oversampled_dataset, 10000, True)
+    bayesian_model = get_bayesian_network_model(which_model)
+    generated_samples = bayesian_network_simulate_samples(bayesian_model, 10000)
+    print(which_model)
+    bayesian_network_inference(bayesian_model, generated_samples)
+    #TODO: approccio fallimentare
+    #samples = data_utils.dataframe_get_sample(oversampled_dataset, 100, 10, 'kmeans', to_discretize=True)
     #bayesian_network_inference(bayesian_model, samples)
     #neural_net(oversampled_dataset, 'neural net')
 
@@ -144,27 +136,35 @@ def tsne_and_visualize(dataframe, perp, iters, n_samples, oversampled=False):
     plt.savefig(f"tsne {'original scaled data' if not oversampled else 'oversampled data'} perp {perp} iters {iters}.png")
     plt.show()
 
-def grid_search_hyperparam(classifiers, x_train, y_train, x_test, y_test, over_sampled, grids):
+def grid_search_hyperparam(classifiers, x_train, y_train, x, y, over_sampled, grids):
     i = 0
     results = []
     kf = StratifiedKFold(n_splits=CV_FOLDS, shuffle=False)
     for key, classifier in classifiers.items():
-        grid = GridSearchCV(classifier, cv=kf, param_grid=grids[i], n_jobs=-1, verbose=True, refit='recall', scoring=SCORING)
-        grid.fit(x_train, y_train)
+        grid = GridSearchCV(classifier, cv=kf, param_grid=grids[i], n_jobs=-1, verbose=True, refit='recall', scoring=SCORING, return_train_score=True)
+        #grid sarà il best estimator restituito da gridsearchcv, che va refittato sull'intero dataset
+        grid.fit(x, y)
         best_parameters = grid.best_params_
-        best_scores = {
-            "Best Accuracy": grid.cv_results_["mean_test_accuracy"][grid.best_index_],
-            "Best Precision": grid.cv_results_["mean_test_precision"][grid.best_index_],
-            "Best Recall": grid.cv_results_["mean_test_recall"][grid.best_index_],
-            "Best F1": grid.cv_results_["mean_test_f1"][grid.best_index_],
+        best_scores_test = {
+            "Accuracy": grid.cv_results_["mean_test_accuracy"][grid.best_index_],
+            "Precision": grid.cv_results_["mean_test_precision"][grid.best_index_],
+            "Recall": grid.cv_results_["mean_test_recall"][grid.best_index_],
+            "F1": grid.cv_results_["mean_test_f1"][grid.best_index_],
         }
-        results.append({"Classifier": key, **best_parameters, **best_scores})
+        best_scores_train = {
+            "Accuracy": grid.cv_results_["mean_train_accuracy"][grid.best_index_],
+            "Precision": grid.cv_results_["mean_train_precision"][grid.best_index_],
+            "Recall": grid.cv_results_["mean_train_recall"][grid.best_index_],
+            "F1": grid.cv_results_["mean_train_f1"][grid.best_index_],
+        }
+        results.append({"Classifier": key, "phase":"training", **best_parameters, **best_scores_train})
+        results.append({"Classifier": key, "phase":"testing", **best_parameters, **best_scores_test})
         i = i+1
     results_df = pd.DataFrame(results)
     if over_sampled:
-        results_df.to_csv('grid search smote oversampling.csv', index=False)
+        results_df.to_csv('grid search 2nd smote oversampling.csv', index=False)
     else:
-        results_df.to_csv('grid search no sampling.csv', index=False)
+        results_df.to_csv('grid search 2nd no sampling.csv', index=False)
 
 def data_discretization_test(data, classifiers):
     x = data.drop('Class', axis=1)
@@ -212,20 +212,24 @@ def neural_net(dataframe:DataFrame, filename):
     inputs = dataframe.drop('Class', axis=1)
     target = dataframe['Class']
     x_train, x_test, y_train, y_test = train_test_split(inputs, target, test_size=0.2)
-    stop_early = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10)
+    stop_early = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=5)
     model = neural_net_hypermodel.MyHypermodel(inputs)
     tuner = keras_tuner.RandomSearch(
         model,
         objective='val_loss',
         overwrite=True,
         max_trials=5)
-    tuner.search(x_train, y_train, epochs = 100, validation_split = 0.2, callbacks= [stop_early])
+    tuner.search(x_train, y_train, epochs = 30, validation_split = 0.2, callbacks= [stop_early])
     hp = tuner.get_best_hyperparameters()[0]
     hypermodel = tuner.hypermodel.build(hp)
     hypermodel.summary()
-    history = hypermodel.fit(x_train, y_train, epochs=100, batch_size=32, validation_split = 0.2, callbacks= [stop_early])
+    history = hypermodel.fit(x_train, y_train, epochs=30, batch_size=32, validation_split = 0.2, callbacks= [stop_early])
     hypermodel.save(f'{filename}.keras')
-    hypermodel.evaluate(x_test, y_test)
+    test_loss, test_acc, test_precision, test_recall = hypermodel.evaluate(x_test, y_test)
+    f1 = 2 * (test_precision * test_recall) / (test_precision + test_recall)
+    print("\nTest loss: {}, test accuracy: {}, test precision: {}, test recall: {}".
+          format(test_loss, test_acc, test_precision, test_recall))
+    print("F1 score: {}".format(f1))
     plot_neural_net(history, f'{filename} plot.png')
 
 def plot_neural_net(history, file_name):
@@ -259,23 +263,18 @@ def isolation_forest(dataframe, is_oversampled_dataset = False):
     iso = IsolationForest(contamination=contamination, n_estimators=200, random_state=42, n_jobs=-1, verbose=2)
     iso.fit(x)
 
-    # Predict anomalies: 1 = inlier, -1 = outlier
+    #Il mapping da -1,1 a 0,1 non è strettamente necessario però almeno siamo allineati a com'è il dataset
     dataframe["outlier"] = iso.predict(x)
     y_pred = dataframe["outlier"].map({1: 0, -1: 1})
     print(roc_auc_score(y, y_pred))
     print(recall_score(y, y_pred))
-    # Map the predictions: 1 -> 0 (normal) and -1 -> 1 (anomaly)
-
     dataframe["outlier_label"] = dataframe["outlier"].map({1: 0, -1: 1})
-    # Reduce data to 2 principal components for visualization
     pca = PCA(n_components=2, random_state=42)
     x_pca = pca.fit_transform(x)
 
-    # Add PCA components to the dataframe for plotting
     dataframe["PC1"] = x_pca[:, 0]
     dataframe["PC2"] = x_pca[:, 1]
 
-    # Create a scatter plot with different colors for normal and anomalous points
     plt.figure(figsize=(10, 6))
     colors = {0: 'blue', 1: 'red'}
     plt.scatter(dataframe["PC1"], dataframe["PC2"],
@@ -286,7 +285,6 @@ def isolation_forest(dataframe, is_oversampled_dataset = False):
     plt.xlabel("Principal Component 1")
     plt.ylabel("Principal Component 2")
 
-    # Create custom legend
     normal_dot = mlines.Line2D([], [], color='blue', marker='o', linestyle='None',
                                markersize=8, label='Normal')
     anomaly_dot = mlines.Line2D([], [], color='red', marker='o', linestyle='None',

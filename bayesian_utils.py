@@ -5,7 +5,7 @@ from pgmpy.estimators import HillClimbSearch, MaximumLikelihoodEstimator
 from pgmpy.inference import VariableElimination
 from pgmpy.models import BayesianNetwork
 from pgmpy.readwrite import BIFReader, BIFWriter
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, recall_score, precision_score
 import pandas as pd
 
 from data_utils import dataframe_choose_cols_and_sample
@@ -51,6 +51,7 @@ def bayesian_network_structure_learning(dataframe: pd.DataFrame, n_samples, disc
 
 def bayesian_network_inference(model, data_to_predict):
     predicted_classes = []
+    print("data", data_to_predict)
     inference = VariableElimination(model)
     amount = data_to_predict['Amount'].to_numpy()
     time = data_to_predict['Time'].to_numpy()
@@ -59,6 +60,7 @@ def bayesian_network_inference(model, data_to_predict):
     v3 = data_to_predict['V3'].to_numpy()
     classes = data_to_predict['Class'].to_numpy()
     real_classes = [int(x) for x in classes]
+    print("inizio a fare robe di inferenza")
     for i in range(len(data_to_predict)):
         data = {
             "Amount" : amount[i],
@@ -72,7 +74,8 @@ def bayesian_network_inference(model, data_to_predict):
         #print(res)
         #print(class_res)
         predicted_classes.append(int(class_res['Class']))
-    print(accuracy_score(real_classes, predicted_classes))
+    print(precision_score(real_classes, predicted_classes))
+    print(recall_score(real_classes, predicted_classes))
 
 def bayesian_network_simulate_samples(model:BayesianNetwork, n_samples):
     samples = model.simulate(n_samples=n_samples)
@@ -80,6 +83,8 @@ def bayesian_network_simulate_samples(model:BayesianNetwork, n_samples):
     return samples
 
 def get_bayesian_network_model(model_path):
+    print("piglio il modello")
     reader = BIFReader(model_path)
     model = reader.get_model()
+    print("modello pigliato")
     return model
