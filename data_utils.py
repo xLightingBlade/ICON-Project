@@ -123,72 +123,41 @@ def correlation_matrix(dataframe:DataFrame, filename):
     plt.savefig(filename)
     plt.show()
 
+#provvede a restituire un dataframe di dimensione n_samples, discretizzato (se to_discretize) con kbinsdiscretizer, proiettato sulle columns indicate
 def dataframe_get_sample(dataframe:DataFrame, n_samples, bins=1, strategy= '', to_discretize=True, columns = ['Amount', 'Time', 'V1', 'V2', 'V3']):
     if to_discretize:
         dataframe = discretize_df(dataframe, bins, strategy)
 
     def stratified_sample(df, n, class_col='class', bin_cols=columns):
-        """
-        Sample n rows from df such that:
-          1. n/2 rows have class==0 and n/2 have class==1.
-          2. For each discretized column in bin_cols, at least one row
-             per unique bin value is selected (if available) within each class.
-
-        Parameters:
-          df          : DataFrame to sample from.
-          n           : Total number of samples (must be even).
-          class_col   : Name of the column with class labels.
-          bin_cols    : List of columns that have been discretized into bins.
-          random_state: Seed for reproducibility.
-
-        Returns:
-          A DataFrame with n rows meeting the criteria.
-        """
-        if n % 2 != 0:
-            raise ValueError("n must be even to split equally between classes.")
-
-        half_n = n // 2
         sampled_list = []
-        print("prima dei ci sono, eccomi ", df)
-        print("ci sono 1")
 
         # Process each class separately
         for cls in [0, 1]:
-            print("ci sono 2")
             cls_df = df[df[class_col] == cls].copy()
             # DataFrame to hold mandatory rows for each bin in each specified column
             mandatory = pd.DataFrame()
-            print("ci sono 3")
             # For each discretized column, select one row per unique bin value
             for col in bin_cols:
                 unique_bins = cls_df[col].unique()
-                print("ci sono 4")
                 for bin_val in unique_bins:
                     # Candidate rows that fall into the bin
                     candidates = cls_df[cls_df[col] == bin_val]
-                    print("ci sono 5")
                     if not candidates.empty:
                         mandatory = pd.concat([mandatory, candidates.sample(n=1)])
-                        print("ci sono 5b")
 
             # Remove any duplicate rows (in case a row was selected for more than one column)
             mandatory = mandatory.drop_duplicates()
-            print("ci sono 6")
             # Count how many rows we already have
             m = len(mandatory)
-            print("ci sono 7")
             # If mandatory rows exceed half_n, randomly select half_n among them
-            if m > half_n:
-                print("ci sono 8a")
-                cls_sample = mandatory.sample(n=half_n)
+            if m > n//2:
+                cls_sample = mandatory.sample(n=n//2)
             else:
                 # Otherwise, sample additional rows (avoiding duplicates) to reach half_n
-                remaining = half_n - m
+                remaining = n//2 - m
                 remaining_df = cls_df.drop(mandatory.index, errors='ignore')
-                print("ci sono 8b")
                 additional = remaining_df.sample(n=remaining)
                 cls_sample = pd.concat([mandatory, additional])
-            print("ci sono 9")
             sampled_list.append(cls_sample)
 
         # Combine class samples and shuffle the final result
@@ -210,11 +179,9 @@ def dataframe_get_sample(dataframe:DataFrame, n_samples, bins=1, strategy= '', t
     return samples
     """
 
-def load_visualize_and_save_dataframe(dataframe_path:str):
-    df = pd.read_csv(dataframe_path)
-    df = df.round(5)
-    ax, fig = render_mpl_table(df)
-    savepath = dataframe_path.split('.')[0]
+def visualize_and_save_dataframe(dataframe, path):
+    ax, fig = render_mpl_table(dataframe)
+    savepath = path.split('.')[0]
     fig.savefig(f"{savepath}.png")
 
 #fonte: https://stackoverflow.com/questions/26678467/export-a-pandas-dataframe-as-a-table-image

@@ -1,12 +1,12 @@
 import networkx as nx
+import pandas as pd
 import pgmpy
 from matplotlib import pyplot as plt
 from pgmpy.estimators import HillClimbSearch, MaximumLikelihoodEstimator
 from pgmpy.inference import VariableElimination
 from pgmpy.models import BayesianNetwork
 from pgmpy.readwrite import BIFReader, BIFWriter
-from sklearn.metrics import accuracy_score, recall_score, precision_score
-import pandas as pd
+from sklearn.metrics import recall_score, precision_score
 
 from data_utils import dataframe_choose_cols_and_sample
 
@@ -19,7 +19,7 @@ def bayesian_network_structure_learning(dataframe: pd.DataFrame, n_samples, disc
     bayesian_network_model.fit(df, estimator=MaximumLikelihoodEstimator, n_jobs=-1)
     #https://pgmpy.org/readwrite/bif.html è un tipo di formato per le reti bayesiane
     writer = BIFWriter(bayesian_network_model)
-    writer.write_bif(filename=f'bnet {n_samples} samples {discrete_bins} bins {discrete_strategy} strategy {len(df.columns)} features max likelihood.bif')
+    writer.write_bif(filename=f'bayes_models\\bnet {n_samples} samples {discrete_bins} bins {discrete_strategy} strategy {len(df.columns)} features max likelihood.bif')
     G = nx.MultiDiGraph(bayesian_network_model.edges())
     pos = nx.spring_layout(G, iterations=100, k=2,
                            threshold=5, pos=nx.spiral_layout(G))
@@ -44,7 +44,7 @@ def bayesian_network_structure_learning(dataframe: pd.DataFrame, n_samples, disc
     )
 
     plt.title(f"Bayesian network")
-    plt.savefig(f"bayesian network {n_samples} samples {discrete_bins} bins {discrete_strategy} strategy {len(df.columns)} features.png")
+    plt.savefig(f"bayes_models\\bayesian network {n_samples} samples {discrete_bins} bins {discrete_strategy} strategy {len(df.columns)} features.png")
     plt.show()
     plt.clf()
 

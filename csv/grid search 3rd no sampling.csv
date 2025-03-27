@@ -1,0 +1,11 @@
+Classifier,phase,C,Accuracy(var),Precision(var),Recall(var),F1(var),max_depth,n_estimators,n_neighbors
+LogisticRegression,training,1000.0,0.99921(0.0),0.8852(8e-05),0.62653(8e-05),0.73369(6e-05),,,
+LogisticRegression,testing,1000.0,0.99919(0.0),0.87321(0.00085),0.61987(0.00126),0.72394(0.00045),,,
+RandomForest,training,,1.0(0.0),1.0(0.0),0.99949(0.0),0.99975(0.0),,150.0,
+RandomForest,testing,,0.99956(0.0),0.95423(0.00039),0.78458(0.00095),0.86038(0.00014),,150.0,
+KNearest,training,,0.99956(0.0),0.95988(0.0),0.77795(0.00011),0.85935(4e-05),,,5.0
+KNearest,testing,,0.99946(0.0),0.94268(0.00041),0.72973(0.00066),0.82231(0.00032),,,5.0
+Support Vector Classifier,training,10.0,0.9998(0.0),0.99943(0.0),0.8872(3e-05),0.93997(1e-05),,,
+Support Vector Classifier,testing,10.0,0.99946(0.0),0.95291(0.00035),0.72154(0.00217),0.82003(0.0007),,,
+DecisionTreeClassifier,training,,0.99961(0.0),0.94927(6e-05),0.81657(4e-05),0.8779(2e-05),5.0,,
+DecisionTreeClassifier,testing,,0.99949(0.0),0.91125(0.00114),0.7866(0.00176),0.84271(0.00015),5.0,,

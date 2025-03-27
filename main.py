@@ -34,10 +34,11 @@ def main():
     og_dataset = data_utils.dataset_load("creditcard.csv", False)
     scaled_dataset = data_utils.dataset_scale(og_dataset)
     oversampled_dataset = data_utils.dataset_scale(og_dataset, True)
-    data_utils.get_pie_chart_of_classes(oversampled_dataset, 'oversampled data pie chart.png')
+    data_utils.get_pie_chart_of_classes(oversampled_dataset, 'pics\\oversampled data pie chart.png')
 
-    data_utils.correlation_matrix(scaled_dataset, 'scaled data correlations.png')
-    data_utils.correlation_matrix(oversampled_dataset, 'oversampled data correlations.png')
+
+    data_utils.correlation_matrix(scaled_dataset, 'pics\\scaled data correlations.png')
+    data_utils.correlation_matrix(oversampled_dataset, 'pics\\oversampled data correlations.png')
     x = scaled_dataset.drop('Class', axis=1)
     y = scaled_dataset['Class']
     x_oversampled = oversampled_dataset.drop('Class', axis=1)
@@ -63,8 +64,8 @@ def main():
     supervised_base_cross_validate(supervised_base_classifiers, x, y, False)
     supervised_base_cross_validate(supervised_base_classifiers, x_oversampled, y_oversampled, True)
 
-    grid_search_hyperparam(supervised_base_classifiers, x_train, y_train, x, y, False, grid_search_obj)
-    grid_search_hyperparam(supervised_base_classifiers, x_train_oversampled, y_train_oversampled, x_oversampled, y_oversampled, True, grid_search_obj)
+    grid_search_hyperparam(supervised_base_classifiers, x, y, False, grid_search_obj)
+    grid_search_hyperparam(supervised_base_classifiers, x_oversampled, y_oversampled, True, grid_search_obj)
 
     tsne_and_visualize(scaled_dataset, 80, 5000, 30000, oversampled=False)
     tsne_and_visualize(oversampled_dataset, 80, 5000, 50000, oversampled=True)
@@ -77,13 +78,13 @@ def main():
     #testo le varie combinazioni di discretizzazione su modelli base, per capire il giusto numero di bins
     #si lascia commentato poichè non più utile
     #data_discretization_test(scaled_dataset, supervised_base_classifiers)
-    #results_df = pd.read_csv("discretization results.csv")
+    #results_df = pd.read_csv("csv\\discretization results.csv")
     #print(results_df.sort_values('recall', ascending=False))
 
-    #print('inizio bayes')
+    print('inizio bayes')
     #in realtà adesso il numero di feature usate per apprendere la rete è fisso a 5 + class, di più non si riesce
-    #bayesian_network_structure_learning(oversampled_dataset, 100000, 20, "kmeans")
-    which_model = 'bnet 100000 samples 20 bins kmeans strategy 6 features max likelihood.bif'
+    bayesian_network_structure_learning(oversampled_dataset, 100000, 20, "kmeans")
+    which_model = 'bayes_models\\bnet 100000 samples 20 bins kmeans strategy 6 features max likelihood.bif'
     bayesian_model = get_bayesian_network_model(which_model)
     generated_samples = bayesian_network_simulate_samples(bayesian_model, 10000)
     print(which_model)
@@ -110,9 +111,9 @@ def supervised_base_cross_validate(classifiers, x, y, over_sampled):
             row[f"{metric}_std"] = np.std(scores[f"test_{metric}"])
         results_df = pd.concat([results_df, pd.DataFrame([row])], ignore_index=True)
     if not over_sampled:
-        results_df.to_csv('first cv no sampling.csv', index=False)
+        results_df.to_csv('csv\\first cv no sampling.csv', index=False)
     else:
-        results_df.to_csv('first cv with smote oversampling.csv', index=False)
+        results_df.to_csv('csv\\first cv with smote oversampling.csv', index=False)
 
 def tsne_and_visualize(dataframe, perp, iters, n_samples, oversampled=False):
     if oversampled:
@@ -133,10 +134,10 @@ def tsne_and_visualize(dataframe, perp, iters, n_samples, oversampled=False):
     plt.ylabel('Y in t-SNE')
     plt.legend(loc='upper left')
     plt.title('t-SNE visualization, samples from dataset')
-    plt.savefig(f"tsne {'original scaled data' if not oversampled else 'oversampled data'} perp {perp} iters {iters}.png")
+    plt.savefig(f"pics\\tsne {'original scaled data' if not oversampled else 'oversampled data'} perp {perp} iters {iters}.png")
     plt.show()
 
-def grid_search_hyperparam(classifiers, x_train, y_train, x, y, over_sampled, grids):
+def grid_search_hyperparam(classifiers, x, y, over_sampled, grids):
     i = 0
     results = []
     kf = StratifiedKFold(n_splits=CV_FOLDS, shuffle=False)
@@ -146,25 +147,29 @@ def grid_search_hyperparam(classifiers, x_train, y_train, x, y, over_sampled, gr
         grid.fit(x, y)
         best_parameters = grid.best_params_
         best_scores_test = {
-            "Accuracy": grid.cv_results_["mean_test_accuracy"][grid.best_index_],
-            "Precision": grid.cv_results_["mean_test_precision"][grid.best_index_],
-            "Recall": grid.cv_results_["mean_test_recall"][grid.best_index_],
-            "F1": grid.cv_results_["mean_test_f1"][grid.best_index_],
+            "Accuracy(var)": f'{round(grid.cv_results_["mean_test_accuracy"][grid.best_index_], 5)}({round(grid.cv_results_["std_test_accuracy"][grid.best_index_] ** 2, 5)})',
+            "Precision(var)": f'{round(grid.cv_results_["mean_test_precision"][grid.best_index_], 5)}({round(grid.cv_results_["std_test_precision"][grid.best_index_] ** 2, 5)})',
+            "Recall(var)": f'{round(grid.cv_results_["mean_test_recall"][grid.best_index_], 5)}({round(grid.cv_results_["std_test_recall"][grid.best_index_] ** 2, 5)})',
+            "F1(var)": f'{round(grid.cv_results_["mean_test_f1"][grid.best_index_], 5)}({round(grid.cv_results_["std_test_f1"][grid.best_index_] ** 2, 5)})',
         }
         best_scores_train = {
-            "Accuracy": grid.cv_results_["mean_train_accuracy"][grid.best_index_],
-            "Precision": grid.cv_results_["mean_train_precision"][grid.best_index_],
-            "Recall": grid.cv_results_["mean_train_recall"][grid.best_index_],
-            "F1": grid.cv_results_["mean_train_f1"][grid.best_index_],
+            "Accuracy(var)": f'{round(grid.cv_results_["mean_train_accuracy"][grid.best_index_], 5)}({round(grid.cv_results_["std_train_accuracy"][grid.best_index_] ** 2, 5)})',
+            "Precision(var)": f'{round(grid.cv_results_["mean_train_precision"][grid.best_index_], 5)}({round(grid.cv_results_["std_train_precision"][grid.best_index_] ** 2, 5)})',
+            "Recall(var)": f'{round(grid.cv_results_["mean_train_recall"][grid.best_index_], 5)}({round(grid.cv_results_["std_train_recall"][grid.best_index_] ** 2, 5)})',
+            "F1(var)": f'{round(grid.cv_results_["mean_train_f1"][grid.best_index_], 5)}({round(grid.cv_results_["std_train_f1"][grid.best_index_] ** 2, 5)})',
         }
         results.append({"Classifier": key, "phase":"training", **best_parameters, **best_scores_train})
         results.append({"Classifier": key, "phase":"testing", **best_parameters, **best_scores_test})
         i = i+1
     results_df = pd.DataFrame(results)
     if over_sampled:
-        results_df.to_csv('grid search 2nd smote oversampling.csv', index=False)
+        path = 'csv\\grid search 3rd smote oversampling.csv'
+        results_df.to_csv(path, index=False)
+        data_utils.visualize_and_save_dataframe(results_df, path)
     else:
-        results_df.to_csv('grid search 2nd no sampling.csv', index=False)
+        path = 'csv\\grid search 3rd no sampling.csv'
+        results_df.to_csv(path, index=False)
+        data_utils.visualize_and_save_dataframe(results_df, path)
 
 def data_discretization_test(data, classifiers):
     x = data.drop('Class', axis=1)
@@ -206,7 +211,7 @@ def data_discretization_test(data, classifiers):
     results_df = pd.DataFrame(results)
     print("\nResults:")
     print(results_df)
-    results_df.to_csv("discretization results.csv", index=False)
+    results_df.to_csv("csv\\discretization results.csv", index=False)
 
 def neural_net(dataframe:DataFrame, filename):
     inputs = dataframe.drop('Class', axis=1)
@@ -230,19 +235,18 @@ def neural_net(dataframe:DataFrame, filename):
     print("\nTest loss: {}, test accuracy: {}, test precision: {}, test recall: {}".
           format(test_loss, test_acc, test_precision, test_recall))
     print("F1 score: {}".format(f1))
-    plot_neural_net(history, f'{filename} plot.png')
+    plot_neural_net(history, f'neural\\{filename} plot.png')
 
+#presa in prestito dal mio scorso progetto
 def plot_neural_net(history, file_name):
     fig, axs = plt.subplots(1, 2)
 
-    # create accuracy subplot
     axs[0].plot(history.history["accuracy"], label="accuracy")
     axs[0].plot(history.history['val_accuracy'], label="val_accuracy")
     axs[0].set_ylabel("Accuracy")
     axs[0].legend(loc="lower right")
     axs[0].set_title("Accuracy evaluation")
 
-    # create loss subplot
     axs[1].plot(history.history["loss"], label="loss")
     axs[1].plot(history.history['val_loss'], label="val_loss")
     axs[1].set_xlabel("Epoch")
@@ -290,7 +294,7 @@ def isolation_forest(dataframe, is_oversampled_dataset = False):
     anomaly_dot = mlines.Line2D([], [], color='red', marker='o', linestyle='None',
                                 markersize=8, label='Outlier')
     plt.legend(handles=[normal_dot, anomaly_dot])
-    plt.savefig(f"isolation forest {'smote' if is_oversampled_dataset else ''}.png")
+    plt.savefig(f"pics\\isolation forest {'smote' if is_oversampled_dataset else ''}.png")
     plt.show()
 
 
